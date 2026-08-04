@@ -1,0 +1,17 @@
+# Build outputs
+build/
+*.o
+*.elf
+*.map
+*.bin
+*.hex
+
+# Editor / OS
+.DS_Store
+.vscode/
+*.swp
+*~
+
+# Debug / tooling
+*.log
+.openocd*

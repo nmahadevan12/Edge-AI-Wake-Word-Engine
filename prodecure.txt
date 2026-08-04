@@ -1,0 +1,53 @@
+Source Code
+    │
+    ▼
+make
+    │
+    ├── Compile C (.c → .o)
+    ├── Assemble startup (.s → .o)
+    ├── Link (.o → .elf)
+    ▼
+firmware.elf
+    │
+    ▼
+OpenOCD
+    │
+    ├── Connect to ST-Link
+    ├── Erase Flash
+    ├── Program Flash
+    ├── Verify
+    └── Reset MCU
+    ▼
+STM32 executes Reset_Handler → main()
+
+
+----------------------------------------------------------------------------------------
+
+/////////////////////////
+/////// ALL STEPS ///////
+/////////////////////////
+make clean
+
+make
+
+OPTIONAL:
+arm-none-eabi-size build/firmware.elf
+arm-none-eabi-objdump -d build/firmware.elf
+arm-none-eabi-objdump -s -j .isr_vector build/firmware.elf
+
+openocd \
+-f interface/stlink.cfg \
+-f target/stm32l4x.cfg \
+-c "program build/firmware.elf verify reset exit"
+
+SUCCESS MESSAGE:
+** Programming Finished **
+** Verified OK **
+** Resetting Target **
+
+DEBUG:
+F5
+F10
+F11
+Shift + F5 = Stop debugging
+Continue = Remove execution
