@@ -1,3 +1,5 @@
+#include <stdio.h>
+
 /* Unsigned Integer Types */
 typedef unsigned char       uint8_t;
 typedef unsigned short      uint16_t;
@@ -13,9 +15,10 @@ typedef signed long long    int64_t;
 /* Base Addresses */
 #define PERIPH_BASE     (0x40000000U)
 #define APB1PERIPH_BASE (PERIPH_BASE)
-#define AHB2PERIPH_BASE (PERIPH_BASE + 0x08000000U)
+#define AHB1PERIPH_BASE (PERIPH_BASE + 0x20000U)
+#define AHB2PERIPH_BASE (PERIPH_BASE + 0x8000000U)
 #define UART4_BASE      (APB1PERIPH_BASE + 0x4C00U)
-#define RCC_BASE        (APB1PERIPH_BASE + 0x1000U)
+#define RCC_BASE        (AHB1PERIPH_BASE + 0x1000U)
 #define GPIOA_BASE      (AHB2PERIPH_BASE + 0U)
 
 /* RCC Register Addresses */
@@ -26,7 +29,7 @@ typedef signed long long    int64_t;
 /* UART Register Addresses*/
 #define USART_CR1       (*(volatile uint32_t *)(UART4_BASE))
 #define USART_CR2       (*(volatile uint32_t *)(UART4_BASE + 0x4U))
-#define USART_BRR       (*(volatile uint32_t *)(UART4_BASE + 0x0CU))
+#define USART_BRR       (*(volatile uint32_t *)(UART4_BASE + 0xCU))
 #define USART_ISR       (*(volatile uint32_t *)(UART4_BASE + 0x1CU))
 #define USART_TDR       (*(volatile uint32_t *)(UART4_BASE + 0x28U))
 
