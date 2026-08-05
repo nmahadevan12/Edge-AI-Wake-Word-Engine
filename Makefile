@@ -7,8 +7,9 @@ SIZE    = arm-none-eabi-size
 # Soft-float: no FPU bring-up required for this LED test
 MCU     = -mcpu=cortex-m4 -mthumb
 
-CFLAGS  = $(MCU) -O0 -Wall -g -ffreestanding -DSTM32L475xx
-LDFLAGS = $(MCU) -Tstm32l475vg.ld -nostartfiles -nostdlib \
+CFLAGS  = $(MCU) -O0 -Wall -g -DSTM32L475xx
+LDFLAGS = $(MCU) -Tstm32l475vg.ld -nostartfiles \
+          --specs=nano.specs --specs=nosys.specs \
           -Wl,-Map=$(BUILD_DIR)/$(TARGET).map,--gc-sections
 
 BUILD_DIR   = build

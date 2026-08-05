@@ -47,4 +47,8 @@ SECTIONS
     . = ALIGN(4);
     _ebss = .;
   } > RAM
+
+  /* Heap starts after BSS — required by newlib _sbrk */
+  end = .;
+  _end = .;
 }
