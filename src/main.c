@@ -1,22 +1,21 @@
 /* Unsigned Integer Types */
 typedef unsigned char       uint8_t;
 typedef unsigned short      uint16_t;
-typedef unsigned long       uint32_t;
+typedef unsigned int        uint32_t;
 typedef unsigned long long  uint64_t;
 
 /* Signed Integer Types */
 typedef signed char         int8_t;
 typedef signed short        int16_t;
-typedef signed long         int32_t;
+typedef signed int          int32_t;
 typedef signed long long    int64_t;
 
 /* Base Addresses */
 #define PERIPH_BASE     (0x40000000U)
 #define APB1PERIPH_BASE (PERIPH_BASE)
-#define AHB1PERIPH_BASE (PERIPH_BASE + 0x00020000U)
 #define AHB2PERIPH_BASE (PERIPH_BASE + 0x08000000U)
 #define UART4_BASE      (APB1PERIPH_BASE + 0x4C00U)
-#define RCC_BASE        (AHB1PERIPH_BASE + 0x1000U)
+#define RCC_BASE        (APB1PERIPH_BASE + 0x1000U)
 #define GPIOA_BASE      (AHB2PERIPH_BASE + 0U)
 
 /* RCC Register Addresses */
@@ -54,10 +53,9 @@ typedef struct
 #define PA0_MASK        (0xFFFFFFFCU)
 #define UART_OUTPUT     (1U << 1)
 
-/* MSI FREQUENCY (RCC_CR MSIRANGE[7:4], need MSIRGSEL=1) */
+/* MSI FREQUENCY */
 #define MSI_MASK        (0xFFFFFF0FU)
-#define MSI_16MHZ       (1U << 7)   /* MSIRANGE = 1000 → ~16 MHz */
-#define MSI_RANGE_SEL   (1U << 3)   /* use MSIRANGE from RCC_CR */
+#define MSI_16MHZ       (1 << 7)
 
 /* UART */
 #define UART4_EN        (1 << 19)
@@ -90,10 +88,8 @@ void UART_Setup(void)
     USART_CR2 |= STOP_BITS; // 2 stop bits
 
     RCC_CR &= MSI_MASK; // clear MSI bits
-    RCC_CR |= MSI_RANGE_SEL | MSI_16MHZ; // use CR range, MSI ~16 MHz
-    while (!(RCC_CR & (1U << 1))) // wait MSIRDY
-    {
-    }
+    RCC_CR |= MSI_16MHZ; // set MSI to 16 MHz, sets MSI = 1000
+
     USART_BRR = BAUD_DIV_115200;
 
     USART_CR1 |= UART_ENABLE;
