@@ -1,6 +1,8 @@
 #include <stdint.h>
 #include <stdio.h>
 
+/* CN4, A0, PC5 */
+
 /* Base Addresses */
 #define PERIPH_BASE     (0x40000000U)
 #define APB1PERIPH_BASE (PERIPH_BASE)
@@ -14,6 +16,7 @@
 #define RCC_CR          (*(volatile uint32_t *)(RCC_BASE))
 #define RCC_APB1ENR1    (*(volatile uint32_t *)(RCC_BASE + 0x58U))
 #define RCC_AHB2ENR     (*(volatile uint32_t *)(RCC_BASE + 0x4CU))
+#define RCC_CCIPR       (*(volatile uint32_t *)(RCC_BASE + 0x88U))
 
 /* UART Register Addresses*/
 #define USART_CR1       (*(volatile uint32_t *)(UART4_BASE))
@@ -73,10 +76,8 @@ typedef struct
 #define AF8_UART4       (1 << 3)
 
 char buffer[128]; // buffer = 128 bytes
-uint16_t number;
-volatile uint16_t x;
-volatile uint16_t y;
-volatile uint16_t z;
+int adc_val = 0;
+int adc_prev = 0;
 
 void UART_Setup(void)
 {
@@ -118,6 +119,12 @@ void UART_Transmit_Ptr(char *buff)
     }
 }
 
+int Get_ADC_Val(void)
+{
+    
+    return adc_val;
+}
+
 int main(void)
 {
     UART4_GPIO_Init(); // initialize UART4 pin
@@ -126,14 +133,13 @@ int main(void)
 
     while (1)
     {
-        
-        sprintf(buffer, "Hello, world! %d\n", number); // uint64_t is long long unsigned (llu)
-        UART_Transmit_Ptr(buffer); // transmit UART on D1, PA0
-        number++; // increment number
-
-        for (x = 0; x < 65535; x++); // delay
-        for (y = 0; y < 65535; y++); // delay
-        for (z = 0; z < 65535; z++); // delay
+        Get_ADC_Val();
+        if (adc_val != adc_prev)
+        {
+            sprintf(buffer, "ADC Value: %d\n", adc_val);
+            UART_Transmit_Ptr(buffer); // transmit UART on D1, PA0
+            adc_prev = adc_val;
+        }
     }
     return 0; // never reached
 }

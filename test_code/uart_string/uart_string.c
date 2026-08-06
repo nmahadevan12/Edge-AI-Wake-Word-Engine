@@ -1,5 +1,14 @@
-#include <stdint.h>
-#include <stdio.h>
+/* Unsigned Integer Types */
+typedef unsigned char       uint8_t;
+typedef unsigned short      uint16_t;
+typedef unsigned int        uint32_t;
+typedef unsigned long long  uint64_t;
+
+/* Signed Integer Types */
+typedef signed char         int8_t;
+typedef signed short        int16_t;
+typedef signed int          int32_t;
+typedef signed long long    int64_t;
 
 /* Base Addresses */
 #define PERIPH_BASE     (0x40000000U)
@@ -72,11 +81,10 @@ typedef struct
 /* Alternate Function Register Low */
 #define AF8_UART4       (1 << 3)
 
-char buffer[128]; // buffer = 128 bytes
+char buffer[2]; // buffer = 2 bytes
 uint16_t number;
-volatile uint16_t x;
-volatile uint16_t y;
-volatile uint16_t z;
+uint64_t timer;
+volatile uint32_t x; // used for delay
 
 void UART_Setup(void)
 {
@@ -111,11 +119,26 @@ void UART_Transmit(char buff)
 
 void UART_Transmit_Ptr(char *buff)
 {
-    while (*buff) // runs until *buff = 0
+    uint8_t i;
+    for (i = 0; i < 2; i++) // run twice
     {
         UART_Transmit(*buff);
         buff++;
     }
+}
+
+void Number_To_Bytes(void) // uint16_t
+{
+    buffer[0] = (number & 0xFF); // low byte
+    buffer[1] = ((number & 0xFF00) >> 8); // high byte, LSR 1 byte 
+}
+
+void Timer_To_Bytes(void) // uint32_t
+{
+    buffer[0] = (timer & 0xFF); // low byte
+    buffer[1] = ((timer & 0xFF00) >> 8); // high byte, LSR 1 byte 
+    buffer[2] = ((timer & 0xFF0000) >> 16); // high byte, LSR 2 bytes
+    buffer[3] = ((timer & 0xFF000000) >> 24); // high byte, LSR 3 bytes
 }
 
 int main(void)
@@ -123,17 +146,17 @@ int main(void)
     UART4_GPIO_Init(); // initialize UART4 pin
     UART_Setup(); // setup UART
     number = 0; // initialize number
+    counter = 0;
 
     while (1)
     {
-        
-        sprintf(buffer, "Hello, world! %d\n", number); // uint64_t is long long unsigned (llu)
-        UART_Transmit_Ptr(buffer); // transmit UART on D1, PA0
+        Number_To_Bytes();
+        UART_Transmit_Ptr(buffer); // transmit Number on D1, PA0
+        Timer_To_Bytes();
+        UART_Transmit_Ptr(buffer); // transmit Timer on D1, PA0
         number++; // increment number
 
-        for (x = 0; x < 65535; x++); // delay
-        for (y = 0; y < 65535; y++); // delay
-        for (z = 0; z < 65535; z++); // delay
+        for (x = 0; x < (262140); x++); // delay
     }
     return 0; // never reached
 }
