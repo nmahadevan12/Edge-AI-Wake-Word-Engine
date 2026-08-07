@@ -95,9 +95,7 @@ typedef struct
 #define TICK_INTERRUPT  (1 << 1)
 
 char buffer[4]; // buffer = 4 bytes
-uint16_t number = 0;
-uint32_t timer = 0;
-volatile uint32_t x; // used for delay
+uint32_t timer = 0; // defined globally since it's used for interrupts
 
 void UART_Setup(void)
 {
@@ -133,25 +131,27 @@ void UART_Transmit(char buff)
 void UART_Transmit_Ptr(char *buff)
 {
     uint8_t i;
-    for (i = 0; i < 4; i++) // run twice
+    for (i = 0; i < 4; i++) // runs four times
     {
         UART_Transmit(*buff);
         buff++;
     }
 }
 
-void Number_To_Bytes(void) // uint16_t, little endian
+void Number_To_Bytes(uint32_t number) // uint32_t, big endian
 {
-    buffer[0] = ((number & 0xFF00) >> 8); // high byte
-    buffer[1] = (number & 0xFF); // low byte, LSR 1 byte
+    buffer[0] = ((number & 0xFF000000) >> 24);
+    buffer[1] = ((number & 0xFF0000) >> 16); // LSR 1 byte
+    buffer[2] = ((number & 0xFF00) >> 8); // LSR 2 bytes 
+    buffer[3] = (number & 0xFF); // LSR 3 bytes
 }
 
-void Timer_To_Bytes(void) // uint32_t, little endian
+void Timer_To_Bytes(void) // uint32_t, big endian
 {
-    buffer[0] = ((timer & 0xFF000000) >> 24); // high byte
-    buffer[1] = ((timer & 0xFF0000) >> 16); // high byte, LSR 1 byte
-    buffer[2] = ((timer & 0xFF00) >> 8); // high byte, LSR 2 bytes 
-    buffer[3] = (timer & 0xFF); // low byte,  LSR 3 bytes
+    buffer[0] = ((timer & 0xFF000000) >> 24);
+    buffer[1] = ((timer & 0xFF0000) >> 16); // LSR 1 byte
+    buffer[2] = ((timer & 0xFF00) >> 8); // LSR 2 bytes 
+    buffer[3] = (timer & 0xFF); // LSR 3 bytes
 }
 
 void SysTick_Init(void)
@@ -185,9 +185,12 @@ int main(void)
     UART_Setup(); // setup UART
     SysTick_Init(); // initialize SysTick
 
+    uint32_t number = 0;
+    volatile uint32_t x; // used for delay
+
     while (1)
     {
-        Number_To_Bytes();
+        Number_To_Bytes(number);
         UART_Transmit_Ptr(buffer); // transmit Number on D1, PA0
 
         Timer_To_Bytes();

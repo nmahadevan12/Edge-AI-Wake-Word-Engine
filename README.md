@@ -120,9 +120,9 @@ UART4 uses the USART register map at `UART4_BASE`.
 
 **Baud:** with OVER8 = 0 and `f_CK` ≈ 16 MHz:
 
-\[
-\texttt{BRR} \approx \frac{16\times10^6}{115200} \approx 138.89 \rightarrow 139
-\]
+```text
+BRR ≈ 16_000_000 / 115200 ≈ 138.89 → 139
+```
 
 Configure with `UE = 0`, then set `UE = 1` (RM0351 USART init guidance).
 
@@ -151,9 +151,11 @@ SysTick is a Cortex-M core peripheral, not an STM32 AHB/APB device block.
 
 ### 1 ms tick
 
-\[
-\texttt{STK\_LOAD} = \frac{f_{\mathrm{HCLK}}}{1000} - 1 = \frac{16\times10^6}{1000} - 1 = 15999\ (0x3E7F)
-\]
+```text
+STK_LOAD = (HCLK_Hz / 1000) - 1
+         = (16_000_000 / 1000) - 1
+         = 15999  (0x3E7F)
+```
 
 `STK_VAL` counts **down** from LOAD to 0 over ~1 ms, then hardware reloads from LOAD. Software does **not** rewrite LOAD each interrupt.
 
