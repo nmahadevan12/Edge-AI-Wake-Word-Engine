@@ -12,7 +12,9 @@ except ImportError:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Dump binary UART as hex")
+    parser = argparse.ArgumentParser(
+        description="Dump UART: uint16 number + uint32 timer (skips 2 stale bytes)"
+    )
     parser.add_argument(
         "port",
         nargs="?",
@@ -21,23 +23,11 @@ def main() -> None:
     )
     parser.add_argument("-b", "--baud", type=int, default=115200)
     parser.add_argument(
-        "-n",
-        "--frame",
-        type=int,
-        default=8,
-        help="bytes per line (default 8 = 4 number + 4 timer)",
-    )
-    parser.add_argument(
         "--stopbits",
         type=int,
         choices=(1, 2),
         default=2,
         help="stop bits (firmware currently uses 2)",
-    )
-    parser.add_argument(
-        "--decode",
-        action="store_true",
-        help="decode as uint16 number + uint32 timer (little-endian, 6-byte frame)",
     )
     args = parser.parse_args()
 
@@ -48,14 +38,12 @@ def main() -> None:
 
     try:
         while True:
-            if args.decode:
-                b = ser.read(6)
-                number = int.from_bytes(b[0:2], "little")
-                timer = int.from_bytes(b[2:6], "little")
-                print(f"{b.hex(' ')}  number={number}  timer_ms={timer}")
-            else:
-                b = ser.read(args.frame)
-                print(b.hex(" "))
+            # Firmware sends 8 bytes: [num_hi num_lo stale stale][t0 t1 t2 t3]
+            # number is uint16 in the first 2; bytes 2-3 are leftover junk
+            b = ser.read(8)
+            number = b[0:2]
+            timer = b[4:8]
+            print(f"{number.hex(' ')}  {timer.hex(' ')}")
     except KeyboardInterrupt:
         print("\nClosed")
     finally:

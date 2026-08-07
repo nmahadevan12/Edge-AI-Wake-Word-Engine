@@ -140,27 +140,18 @@ void UART_Transmit_Ptr(char *buff)
     }
 }
 
-void Number_To_Bytes(void) // uint16_t
+void Number_To_Bytes(void) // uint16_t, little endian
 {
-    buffer[0] = (number & 0xFF); // low byte
-    buffer[1] = ((number & 0xFF00) >> 8); // high byte, LSR 1 byte 
+    buffer[0] = ((number & 0xFF00) >> 8); // high byte
+    buffer[1] = (number & 0xFF); // low byte, LSR 1 byte
 }
 
-void Timer_To_Bytes(void) // uint32_t
+void Timer_To_Bytes(void) // uint32_t, little endian
 {
-    buffer[0] = (timer & 0xFF); // low byte
-    buffer[1] = ((timer & 0xFF00) >> 8); // high byte, LSR 1 byte 
-    buffer[2] = ((timer & 0xFF0000) >> 16); // high byte, LSR 2 bytes
-    buffer[3] = ((timer & 0xFF000000) >> 24); // high byte, LSR 3 bytes
-}
-
-void Clear_Buffer(void)
-{
-    // *(unsigned long *) (&buffer) = 0;
-    buffer[0] = 0;
-    buffer[1] = 0;
-    buffer[2] = 0;
-    buffer[3] = 0;
+    buffer[0] = ((timer & 0xFF000000) >> 24); // high byte
+    buffer[1] = ((timer & 0xFF0000) >> 16); // high byte, LSR 1 byte
+    buffer[2] = ((timer & 0xFF00) >> 8); // high byte, LSR 2 bytes 
+    buffer[3] = (timer & 0xFF); // low byte,  LSR 3 bytes
 }
 
 void SysTick_Init(void)
@@ -199,15 +190,11 @@ int main(void)
         Number_To_Bytes();
         UART_Transmit_Ptr(buffer); // transmit Number on D1, PA0
 
-        Clear_Buffer();
-
         Timer_To_Bytes();
         UART_Transmit_Ptr(buffer); // transmit Timer on D1, PA0
 
-        Clear_Buffer();
-
         number++; // increment number
-        for (x = 0; x < (262140); x++); // delay
+        for (x = 0; x < (1000000); x++); // delay
     }
     return 0; // never reached
 }
