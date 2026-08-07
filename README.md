@@ -45,7 +45,7 @@ Host tool [`serial_monitor.py`](serial_monitor.py) reads **8-byte** frames, prin
 
 ---
 
-## 3. Memory map and bases — RM0351 §2
+## 3. Memory map and bases — RM0351 Section 2
 
 | Symbol | Address | Bus |
 |--------|---------|-----|
@@ -62,7 +62,7 @@ Register macros use `*(volatile uint32_t *)(base + offset)` so they can be read/
 
 ---
 
-## 4. Clock tree — RM0351 §6
+## 4. Clock tree — RM0351 Section 6
 
 ### MSI → HCLK
 
@@ -93,7 +93,7 @@ RM0351 clock-tree text: SysTick external clock is HCLK/8; software may select HC
 
 ---
 
-## 5. GPIO — UART4_TX on PA0 — RM0351 §8 + datasheet + UM2153
+## 5. GPIO — UART4_TX on PA0 — RM0351 Section 8 + datasheet + UM2153
 
 | Item | Setting | Source |
 |------|---------|--------|
@@ -106,7 +106,7 @@ Init order: enable GPIOA clock → clear/set PA0 `MODER` bits only (do not wipe 
 
 ---
 
-## 6. UART4 — RM0351 §40 (USART)
+## 6. UART4 — RM0351 Section 40 (USART)
 
 UART4 uses the USART register map at `UART4_BASE`.
 
@@ -139,7 +139,7 @@ SysTick is a Cortex-M core peripheral, not an STM32 AHB/APB device block.
 | `STK_CTRL` | `0xE000E010` | ENABLE, TICKINT, CLKSOURCE, COUNTFLAG |
 | `STK_LOAD` | `0xE000E014` | Reload value |
 | `STK_VAL` | `0xE000E018` | Current down-counter |
-| `STK_CALIB` | `0xE000E01C` | Calibration (chip-specific; RM0351 §13.2) |
+| `STK_CALIB` | `0xE000E01C` | Calibration (chip-specific; RM0351 Section 13.2) |
 
 ### CTRL bits used (PM0214)
 
@@ -174,7 +174,7 @@ Exception 15 (SysTick) must point at `SysTick_Handler`. This project’s table e
 
 If that slot remains `Default_Handler` and TICKINT is set, the core hangs in an infinite loop on the first tick.
 
-RM0351 §13.3 lists vectors; programming details are in PM0214.
+RM0351 Section 13.3 lists vectors; programming details are in PM0214.
 
 ---
 
