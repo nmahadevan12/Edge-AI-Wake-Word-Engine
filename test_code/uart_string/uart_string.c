@@ -18,6 +18,7 @@ typedef signed long long    int64_t;
 #define UART4_BASE      (APB1PERIPH_BASE + 0x4C00U)
 #define RCC_BASE        (AHB1PERIPH_BASE + 0x1000U)
 #define GPIOA_BASE      (AHB2PERIPH_BASE + 0U)
+#define SYSTICK_BASE    (0xE000E010U)
 
 /* RCC Register Addresses */
 #define RCC_CR          (*(volatile uint32_t *)(RCC_BASE))
@@ -30,6 +31,12 @@ typedef signed long long    int64_t;
 #define USART_BRR       (*(volatile uint32_t *)(UART4_BASE + 0xCU))
 #define USART_ISR       (*(volatile uint32_t *)(UART4_BASE + 0x1CU))
 #define USART_TDR       (*(volatile uint32_t *)(UART4_BASE + 0x28U))
+
+/* SysTick Timer Addresses */
+#define STK_CTRL        (*(volatile uint32_t *)(SYSTICK_BASE))
+#define STK_LOAD        (*(volatile uint32_t *)(SYSTICK_BASE + 0x4U))
+#define STK_VAL         (*(volatile uint32_t *)(SYSTICK_BASE + 0x8U))
+#define STK_CALIB       (*(volatile uint32_t *)(SYSTICK_BASE + 0xCU))
 
 /* GPIO Peripheral Register Struct */
 typedef struct
@@ -81,9 +88,15 @@ typedef struct
 /* Alternate Function Register Low */
 #define AF8_UART4       (1 << 3)
 
-char buffer[2]; // buffer = 2 bytes
-uint16_t number;
-uint64_t timer;
+/* SysTick Control and Status Register */
+#define AHB_CLOCK       (1 << 2)
+#define COUNTER_ENABLE  (1)
+#define TICK_TIME       (0x3E7FU) // 15999
+#define TICK_INTERRUPT  (1 << 1)
+
+char buffer[4]; // buffer = 4 bytes
+uint16_t number = 0;
+uint32_t timer = 0;
 volatile uint32_t x; // used for delay
 
 void UART_Setup(void)
@@ -120,7 +133,7 @@ void UART_Transmit(char buff)
 void UART_Transmit_Ptr(char *buff)
 {
     uint8_t i;
-    for (i = 0; i < 2; i++) // run twice
+    for (i = 0; i < 4; i++) // run twice
     {
         UART_Transmit(*buff);
         buff++;
@@ -141,21 +154,46 @@ void Timer_To_Bytes(void) // uint32_t
     buffer[3] = ((timer & 0xFF000000) >> 24); // high byte, LSR 3 bytes
 }
 
+void SysTick_Init(void)
+{
+    STK_CTRL |= AHB_CLOCK; // sets clock source to 16 MHz
+    STK_CTRL |= TICK_INTERRUPT; // counting down to 0 enables interrupt 
+
+    /*  
+        MSI (16 MHz)
+        SYSCLK (default = MSI)
+        divide HPRE (default = 1)
+        HCLK (16 MHz) 
+        TICK_TIME = (HCLK / 1000) - 1
+
+        1000 = CLOCKS/SEC -> 1 CLK every 1 ms
+    */
+    STK_LOAD |= TICK_TIME; // 1 ms increment (time to count down from 15999 to 0)
+
+    STK_CTRL |= COUNTER_ENABLE; // enable SysTick counter
+}
+
+void SysTick_Handler(void)
+{
+    /* Executed on each 1ms interrupt */
+    timer++; // increment timer
+}
+
 int main(void)
 {
     UART4_GPIO_Init(); // initialize UART4 pin
     UART_Setup(); // setup UART
-    number = 0; // initialize number
-    counter = 0;
+    SysTick_Init(); // initialize SysTick
 
     while (1)
     {
         Number_To_Bytes();
         UART_Transmit_Ptr(buffer); // transmit Number on D1, PA0
+
         Timer_To_Bytes();
         UART_Transmit_Ptr(buffer); // transmit Timer on D1, PA0
-        number++; // increment number
 
+        number++; // increment number
         for (x = 0; x < (262140); x++); // delay
     }
     return 0; // never reached

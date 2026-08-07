@@ -1,7 +1,14 @@
-#include <stdint.h>
-#include <stdio.h>
+/* Unsigned Integer Types */
+typedef unsigned char       uint8_t;
+typedef unsigned short      uint16_t;
+typedef unsigned int        uint32_t;
+typedef unsigned long long  uint64_t;
 
-/* CN4, A0, PC5 */
+/* Signed Integer Types */
+typedef signed char         int8_t;
+typedef signed short        int16_t;
+typedef signed int          int32_t;
+typedef signed long long    int64_t;
 
 /* Base Addresses */
 #define PERIPH_BASE     (0x40000000U)
@@ -11,12 +18,12 @@
 #define UART4_BASE      (APB1PERIPH_BASE + 0x4C00U)
 #define RCC_BASE        (AHB1PERIPH_BASE + 0x1000U)
 #define GPIOA_BASE      (AHB2PERIPH_BASE + 0U)
+#define SYSTICK_BASE    (0xE000E010U)
 
 /* RCC Register Addresses */
 #define RCC_CR          (*(volatile uint32_t *)(RCC_BASE))
 #define RCC_APB1ENR1    (*(volatile uint32_t *)(RCC_BASE + 0x58U))
 #define RCC_AHB2ENR     (*(volatile uint32_t *)(RCC_BASE + 0x4CU))
-#define RCC_CCIPR       (*(volatile uint32_t *)(RCC_BASE + 0x88U))
 
 /* UART Register Addresses*/
 #define USART_CR1       (*(volatile uint32_t *)(UART4_BASE))
@@ -24,6 +31,12 @@
 #define USART_BRR       (*(volatile uint32_t *)(UART4_BASE + 0xCU))
 #define USART_ISR       (*(volatile uint32_t *)(UART4_BASE + 0x1CU))
 #define USART_TDR       (*(volatile uint32_t *)(UART4_BASE + 0x28U))
+
+/* SysTick Timer Addresses */
+#define STK_CTRL        (*(volatile uint32_t *)(SYSTICK_BASE))
+#define STK_LOAD        (*(volatile uint32_t *)(SYSTICK_BASE + 0x4U))
+#define STK_VAL         (*(volatile uint32_t *)(SYSTICK_BASE + 0x8U))
+#define STK_CALIB       (*(volatile uint32_t *)(SYSTICK_BASE + 0xCU))
 
 /* GPIO Peripheral Register Struct */
 typedef struct
@@ -75,9 +88,16 @@ typedef struct
 /* Alternate Function Register Low */
 #define AF8_UART4       (1 << 3)
 
-char buffer[128]; // buffer = 128 bytes
-int adc_val = 0;
-int adc_prev = 0;
+/* SysTick Control and Status Register */
+#define AHB_CLOCK       (1 << 2)
+#define COUNTER_ENABLE  (1)
+#define TICK_TIME       (0x3E7FU) // 15999
+#define TICK_INTERRUPT  (1 << 1)
+
+char buffer[4]; // buffer = 4 bytes
+uint16_t number = 0;
+uint32_t timer = 0;
+volatile uint32_t x; // used for delay
 
 void UART_Setup(void)
 {
@@ -112,34 +132,69 @@ void UART_Transmit(char buff)
 
 void UART_Transmit_Ptr(char *buff)
 {
-    while (*buff) // runs until *buff = 0
+    uint8_t i;
+    for (i = 0; i < 4; i++) // run twice
     {
         UART_Transmit(*buff);
         buff++;
     }
 }
 
-int Get_ADC_Val(void)
+void Number_To_Bytes(void) // uint16_t
 {
-    
-    return adc_val;
+    buffer[0] = (number & 0xFF); // low byte
+    buffer[1] = ((number & 0xFF00) >> 8); // high byte, LSR 1 byte 
+}
+
+void Timer_To_Bytes(void) // uint32_t
+{
+    buffer[0] = (timer & 0xFF); // low byte
+    buffer[1] = ((timer & 0xFF00) >> 8); // high byte, LSR 1 byte 
+    buffer[2] = ((timer & 0xFF0000) >> 16); // high byte, LSR 2 bytes
+    buffer[3] = ((timer & 0xFF000000) >> 24); // high byte, LSR 3 bytes
+}
+
+void SysTick_Init(void)
+{
+    STK_CTRL |= AHB_CLOCK; // sets clock source to 16 MHz
+    STK_CTRL |= TICK_INTERRUPT; // counting down to 0 enables interrupt 
+
+    /*  
+        MSI (16 MHz)
+        SYSCLK (default = MSI)
+        divide HPRE (default = 1)
+        HCLK (16 MHz) 
+        TICK_TIME = (HCLK / 1000) - 1
+
+        1000 = CLOCKS/SEC -> 1 CLK every 1 ms
+    */
+    STK_LOAD |= TICK_TIME; // 1 ms increment (time to count down from 15999 to 0)
+
+    STK_CTRL |= COUNTER_ENABLE; // enable SysTick counter
+}
+
+void SysTick_Handler(void)
+{
+    /* Executed on each 1ms interrupt */
+    timer++; // increment timer
 }
 
 int main(void)
 {
     UART4_GPIO_Init(); // initialize UART4 pin
     UART_Setup(); // setup UART
-    number = 0; // initialize number
+    SysTick_Init(); // initialize SysTick
 
     while (1)
     {
-        Get_ADC_Val();
-        if (adc_val != adc_prev)
-        {
-            sprintf(buffer, "ADC Value: %d\n", adc_val);
-            UART_Transmit_Ptr(buffer); // transmit UART on D1, PA0
-            adc_prev = adc_val;
-        }
+        Number_To_Bytes();
+        UART_Transmit_Ptr(buffer); // transmit Number on D1, PA0
+
+        Timer_To_Bytes();
+        UART_Transmit_Ptr(buffer); // transmit Timer on D1, PA0
+
+        number++; // increment number
+        for (x = 0; x < (262140); x++); // delay
     }
     return 0; // never reached
 }
