@@ -154,6 +154,15 @@ void Timer_To_Bytes(void) // uint32_t
     buffer[3] = ((timer & 0xFF000000) >> 24); // high byte, LSR 3 bytes
 }
 
+void Clear_Buffer(void)
+{
+    // *(unsigned long *) (&buffer) = 0;
+    buffer[0] = 0;
+    buffer[1] = 0;
+    buffer[2] = 0;
+    buffer[3] = 0;
+}
+
 void SysTick_Init(void)
 {
     STK_CTRL |= AHB_CLOCK; // sets clock source to 16 MHz
@@ -190,8 +199,12 @@ int main(void)
         Number_To_Bytes();
         UART_Transmit_Ptr(buffer); // transmit Number on D1, PA0
 
+        Clear_Buffer();
+
         Timer_To_Bytes();
         UART_Transmit_Ptr(buffer); // transmit Timer on D1, PA0
+
+        Clear_Buffer();
 
         number++; // increment number
         for (x = 0; x < (262140); x++); // delay
