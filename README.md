@@ -1,4 +1,4 @@
-# STM32L475 bare-metal — B-L475E-IOT01A
+# STM32L475VGT6 Discovery Kit Bare-Metal C
 
 Technical notes for register-level firmware on the **STM32L475VG** Discovery IoT kit (`B-L475E-IOT01A`). Application code is in [`src/main.c`](src/main.c): **UART4 TX** on Arduino **D1 (PA0)** sending a binary stream of a sample index and a millisecond timestamp driven by **SysTick**.
 
