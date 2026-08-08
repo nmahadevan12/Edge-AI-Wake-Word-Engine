@@ -19,11 +19,13 @@ typedef signed long long    int64_t;
 #define RCC_BASE        (AHB1PERIPH_BASE + 0x1000U)
 #define GPIOA_BASE      (AHB2PERIPH_BASE + 0U)
 #define SYSTICK_BASE    (0xE000E010U)
+#define ADC_BASE        ()
 
 /* RCC Register Addresses */
 #define RCC_CR          (*(volatile uint32_t *)(RCC_BASE))
 #define RCC_APB1ENR1    (*(volatile uint32_t *)(RCC_BASE + 0x58U))
 #define RCC_AHB2ENR     (*(volatile uint32_t *)(RCC_BASE + 0x4CU))
+#define RCC_CCIPR       (*(volatile uint32_t *)(RCC_BASE + 0x88U))
 
 /* UART Register Addresses*/
 #define USART_CR1       (*(volatile uint32_t *)(UART4_BASE))
@@ -37,6 +39,10 @@ typedef signed long long    int64_t;
 #define STK_LOAD        (*(volatile uint32_t *)(SYSTICK_BASE + 0x4U))
 #define STK_VAL         (*(volatile uint32_t *)(SYSTICK_BASE + 0x8U))
 #define STK_CALIB       (*(volatile uint32_t *)(SYSTICK_BASE + 0xCU))
+
+/* ADC Addresses */
+#define ADC_CFGR        (*(volatile uint32_t *)(ADC_BASE + 0x0CU))
+#define ADC_CCR         (*(volatile uint32_t *)(ADC_BASE + 0x308U))
 
 /* GPIO Peripheral Register Struct */
 typedef struct
@@ -65,10 +71,7 @@ typedef struct
 #define MSI_MASK        (0xFFFFFF0FU)
 #define MSI_16MHZ       (1 << 7)
 #define CLK_RANGE_SEL   (1 << 3)
-
-/* UART */
-#define UART4_EN        (1 << 19)
-#define BAUD_DIV_115200 (139) // Clock Hz (16 MHz), 115200
+#define MSI_FREQ_SEL    (MSI_16MHZ | CLK_RANGE_SEL)
 
 /* UART Control Register 1 */
 #define WORD_LENGTH_1   (0 << 28) // M1
@@ -76,6 +79,7 @@ typedef struct
 #define WORD_LENGTH     (WORD_LENGTH_1 | WORD_LENGTH_0)
 #define TX_ENABLE       (1 << 3)
 #define UART_ENABLE     (1 << 0)
+#define LENGTH_TX       (WORD_LENGTH | TX_ENABLE)
 
 /* UART Control Register 2 */
 #define STOP_1          (1 << 13)
@@ -85,6 +89,10 @@ typedef struct
 /* UART Interrupt and Status Register */
 #define UART_TXE        (0x80U)
 
+/* UART */
+#define UART4_EN        (1 << 19)
+#define BAUD_DIV_115200 (139) // Clock Hz (16 MHz), 115200
+
 /* Alternate Function Register Low */
 #define AF8_UART4       (1 << 3)
 
@@ -93,6 +101,19 @@ typedef struct
 #define COUNTER_ENABLE  (1)
 #define TICK_TIME       (0x3E7FU) // 15999
 #define TICK_INTERRUPT  (1 << 1)
+#define CLK_SOURCE_INT  (AHB_CLOCK | TICK_INTERRUPT)
+
+/* ADC Configuration Register */
+#define RESOLUTION      (1 << 4) // 10
+
+/* ADC Comon Status Register */
+#define ADC_PRESCALER   (0x3F2) // 0b1010
+#define CLOCK_MODE      (1 << 16)
+
+/* ADC */
+#define CLOCK_BIT_29    (1 << 29)
+#define CLOCK_BIT_28    (1 << 28)
+#define ADC_CLOCK       (CLOCK_BIT_29 | CLOCK_BIT_28) // 11
 
 char buffer[4]; // buffer = 4 bytes
 uint32_t timer = 0; // defined globally since it's used for interrupts
@@ -100,17 +121,11 @@ uint32_t timer = 0; // defined globally since it's used for interrupts
 void UART_Setup(void)
 {
     RCC_APB1ENR1 |= UART4_EN; // enable clock
-
-    USART_CR1 |= WORD_LENGTH; // 1 start bit, 8 data bits
-    USART_CR1 |= TX_ENABLE; // enables TX
+    USART_CR1 |= LENGTH_TX; // sets length (1 start bit, 8 data bits), enables tx
     USART_CR2 |= STOP_BITS; // 2 stop bits
-
     RCC_CR &= MSI_MASK; // clear MSI bits
-    RCC_CR |= MSI_16MHZ; // set MSI to 16 MHz, sets MSI = 1000
-    RCC_CR |= CLK_RANGE_SEL; // use MSI range provided in RCC_CR (16 MHz)
-
+    RCC_CR |= MSI_FREQ_SEL; // set MSI to 16 MHz (MSI = 1000), use MSI range provided in RCC_CR (16 MHz)
     USART_BRR = BAUD_DIV_115200;
-
     USART_CR1 |= UART_ENABLE;
 }
 
@@ -138,27 +153,35 @@ void UART_Transmit_Ptr(char *buff)
     }
 }
 
-void Number_To_Bytes(uint32_t number) // uint32_t, big endian
+void ADC_Int_To_Bytes(uint32_t ADC_Int) // uint32_t, big endian
 {
-    buffer[0] = ((number & 0xFF000000) >> 24);
-    buffer[1] = ((number & 0xFF0000) >> 16); // LSR 1 byte
-    buffer[2] = ((number & 0xFF00) >> 8); // LSR 2 bytes 
-    buffer[3] = (number & 0xFF); // LSR 3 bytes
+    buffer[0] = ((ADC_Int & 0xFF000000U) >> 24); // LSR 3 bytes
+    buffer[1] = ((ADC_Int & 0xFF0000U) >> 16); // LSR 2 bytes
+    buffer[2] = ((ADC_Int & 0xFF00U) >> 8); // LSR 1 byte
+    buffer[3] = (ADC_Int & 0xFFU);
 }
 
 void Timer_To_Bytes(void) // uint32_t, big endian
 {
-    buffer[0] = ((timer & 0xFF000000) >> 24);
-    buffer[1] = ((timer & 0xFF0000) >> 16); // LSR 1 byte
-    buffer[2] = ((timer & 0xFF00) >> 8); // LSR 2 bytes 
-    buffer[3] = (timer & 0xFF); // LSR 3 bytes
+    buffer[0] = ((timer & 0xFF000000U) >> 24); // LSR 3 bytes
+    buffer[1] = ((timer & 0xFF0000U) >> 16); // LSR 2 bytes
+    buffer[2] = ((timer & 0xFF00U) >> 8); // LSR 1 byte
+    buffer[3] = (timer & 0xFFU);
+}
+
+void ADC_Init(void)
+{
+    ADC_CFGR |= RESOLUTION; // 8-bit resolution
+
+    RCC_CCIPR |= ADC_CLOCK; // selects system clock as ADC clock
+
+    ADC_CCR |= ADC_PRESCALER; // divides clock by 128
+    ADC_CCR |= CLOCK_MODE; // sets clock = HCLK
 }
 
 void SysTick_Init(void)
 {
-    STK_CTRL |= AHB_CLOCK; // sets clock source to 16 MHz
-    STK_CTRL |= TICK_INTERRUPT; // counting down to 0 enables interrupt 
-
+    STK_CTRL |= CLK_SOURCE_INT; // sets clock source to 16 MHz, counting down to 0 enables interrupt 
     /*  
         MSI (16 MHz)
         SYSCLK (default = MSI)
@@ -169,7 +192,6 @@ void SysTick_Init(void)
         1000 = CLOCKS/SEC -> 1 CLK every 1 ms
     */
     STK_LOAD |= TICK_TIME; // 1 ms increment (time to count down from 15999 to 0)
-
     STK_CTRL |= COUNTER_ENABLE; // enable SysTick counter
 }
 
@@ -185,19 +207,22 @@ int main(void)
     UART_Setup(); // setup UART
     SysTick_Init(); // initialize SysTick
 
-    uint32_t number = 0;
-    volatile uint32_t x; // used for delay
+    uint8_t ADC_Int = ADC;
+    uint8_t ADC_prev;
 
     while (1)
     {
-        Number_To_Bytes(number);
-        UART_Transmit_Ptr(buffer); // transmit Number on D1, PA0
+        if (ADC_Int != ADC_prev)
+        {
+            ADC_Int_To_Bytes(ADC_Int);
+            UART_Transmit_Ptr(buffer); // transmit ADC_Int on D1, PA0
 
-        Timer_To_Bytes();
-        UART_Transmit_Ptr(buffer); // transmit Timer on D1, PA0
-
-        number++; // increment number
-        for (x = 0; x < (1000000); x++); // delay
+            Timer_To_Bytes();
+            UART_Transmit_Ptr(buffer); // transmit Timer on D1, PA0
+            ADC_Prev = ADC_Int;
+        }
     }
     return 0; // never reached
 }
+
+/* A0, PC5, ADC */
