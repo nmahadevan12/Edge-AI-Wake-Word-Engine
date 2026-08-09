@@ -18,8 +18,10 @@ typedef signed long long    int64_t;
 #define UART4_BASE      (APB1PERIPH_BASE + 0x4C00U)
 #define RCC_BASE        (AHB1PERIPH_BASE + 0x1000U)
 #define GPIOA_BASE      (AHB2PERIPH_BASE + 0U)
+#define GPIOC_BASE      (AHB2PERIPH_BASE + 0x800U)
+#define ADC_BASE        (AHB2PERIPH_BASE + 0x40000U)
+#define ADC1_BASE       (ADC_BASE)
 #define SYSTICK_BASE    (0xE000E010U)
-#define ADC_BASE        ()
 
 /* RCC Register Addresses */
 #define RCC_CR          (*(volatile uint32_t *)(RCC_BASE))
@@ -34,15 +36,17 @@ typedef signed long long    int64_t;
 #define USART_ISR       (*(volatile uint32_t *)(UART4_BASE + 0x1CU))
 #define USART_TDR       (*(volatile uint32_t *)(UART4_BASE + 0x28U))
 
+/* ADC Addresses */
+#define ADC_CR          (*(volatile uint32_t *)(ADC1_BASE + 0x8U))
+#define ADC_CFGR        (*(volatile uint32_t *)(ADC1_BASE + 0xCU))
+#define ADC_SQR1        (*(volatile uint32_t *)(ADC1_BASE + 0x30U))
+#define ADC_CCR         (*(volatile uint32_t *)(ADC1_BASE + 0x308U))
+
 /* SysTick Timer Addresses */
 #define STK_CTRL        (*(volatile uint32_t *)(SYSTICK_BASE))
 #define STK_LOAD        (*(volatile uint32_t *)(SYSTICK_BASE + 0x4U))
 #define STK_VAL         (*(volatile uint32_t *)(SYSTICK_BASE + 0x8U))
 #define STK_CALIB       (*(volatile uint32_t *)(SYSTICK_BASE + 0xCU))
-
-/* ADC Addresses */
-#define ADC_CFGR        (*(volatile uint32_t *)(ADC_BASE + 0x0CU))
-#define ADC_CCR         (*(volatile uint32_t *)(ADC_BASE + 0x308U))
 
 /* GPIO Peripheral Register Struct */
 typedef struct
@@ -67,34 +71,43 @@ typedef struct
 #define PA0_MASK        (0xFFFFFFFCU)
 #define UART_OUTPUT     (1U << 1)
 
+/* GPIOC */
+#define GPIOC           ((GPIO_TypeDef *)(GPIOC_BASE))
+#define PC5_MASK        (0xFFFFF3FFU)
+#define ANALOG_BIT_11   (1 << 11)
+#define ANALOG_BIT_10   (1 << 10)
+#define ANALOG_FUNC     (ANALOG_BIT_11 | ANALOG_BIT_10) // 11
+
 /* MSI FREQUENCY */
 #define MSI_MASK        (0xFFFFFF0FU)
 #define MSI_16MHZ       (1 << 7)
 #define CLK_RANGE_SEL   (1 << 3)
 #define MSI_FREQ_SEL    (MSI_16MHZ | CLK_RANGE_SEL)
 
-/* UART Control Register 1 */
+/* UART */
 #define WORD_LENGTH_1   (0 << 28) // M1
 #define WORD_LENGTH_0   (0 << 12) // M0
 #define WORD_LENGTH     (WORD_LENGTH_1 | WORD_LENGTH_0)
 #define TX_ENABLE       (1 << 3)
 #define UART_ENABLE     (1 << 0)
 #define LENGTH_TX       (WORD_LENGTH | TX_ENABLE)
-
-/* UART Control Register 2 */
 #define STOP_1          (1 << 13)
 #define STOP_2          (0 << 12)
 #define STOP_BITS       (STOP_1 | STOP_2)
-
-/* UART Interrupt and Status Register */
 #define UART_TXE        (0x80U)
-
-/* UART */
 #define UART4_EN        (1 << 19)
 #define BAUD_DIV_115200 (139) // Clock Hz (16 MHz), 115200
+#define AF8_UART4       (1 << 3) // Alternate Function for UART
 
-/* Alternate Function Register Low */
-#define AF8_UART4       (1 << 3)
+/* ADC */
+#define RESOLUTION      (1 << 4) // 10
+#define ADC_PRESCALER   (0x3F2) // 0b1010
+#define CLOCK_MODE      (1 << 16)
+#define CLOCK_BIT_29    (1 << 29)
+#define CLOCK_BIT_28    (1 << 28)
+#define ADC_CLOCK       (CLOCK_BIT_29 | CLOCK_BIT_28) // 11
+#define ADCEN           (1 << 13)
+#define ADVREGEN        (1 << 28) // ADC Voltage Regulator Enable
 
 /* SysTick Control and Status Register */
 #define AHB_CLOCK       (1 << 2)
@@ -102,18 +115,6 @@ typedef struct
 #define TICK_TIME       (0x3E7FU) // 15999
 #define TICK_INTERRUPT  (1 << 1)
 #define CLK_SOURCE_INT  (AHB_CLOCK | TICK_INTERRUPT)
-
-/* ADC Configuration Register */
-#define RESOLUTION      (1 << 4) // 10
-
-/* ADC Comon Status Register */
-#define ADC_PRESCALER   (0x3F2) // 0b1010
-#define CLOCK_MODE      (1 << 16)
-
-/* ADC */
-#define CLOCK_BIT_29    (1 << 29)
-#define CLOCK_BIT_28    (1 << 28)
-#define ADC_CLOCK       (CLOCK_BIT_29 | CLOCK_BIT_28) // 11
 
 char buffer[4]; // buffer = 4 bytes
 uint32_t timer = 0; // defined globally since it's used for interrupts
@@ -132,6 +133,14 @@ void UART_Setup(void)
 void UART4_GPIO_Init(void)
 {
     RCC_AHB2ENR |= GPIOA_CLOCK; // enables GPIOA clock
+
+    /*
+        MODER
+        00: Input
+        01: Output
+        10: Alternate Function
+        11: Analog
+    */
     GPIOA->MODER &= PA0_MASK; // clears bits [1:0]
     GPIOA->MODER |= UART_OUTPUT; // alternate fucntion mode (UART)
     GPIOA->AFRL = AF8_UART4; // sets alternate function for PA0
@@ -153,30 +162,32 @@ void UART_Transmit_Ptr(char *buff)
     }
 }
 
-void ADC_Int_To_Bytes(uint32_t ADC_Int) // uint32_t, big endian
-{
-    buffer[0] = ((ADC_Int & 0xFF000000U) >> 24); // LSR 3 bytes
-    buffer[1] = ((ADC_Int & 0xFF0000U) >> 16); // LSR 2 bytes
-    buffer[2] = ((ADC_Int & 0xFF00U) >> 8); // LSR 1 byte
-    buffer[3] = (ADC_Int & 0xFFU);
-}
-
-void Timer_To_Bytes(void) // uint32_t, big endian
-{
-    buffer[0] = ((timer & 0xFF000000U) >> 24); // LSR 3 bytes
-    buffer[1] = ((timer & 0xFF0000U) >> 16); // LSR 2 bytes
-    buffer[2] = ((timer & 0xFF00U) >> 8); // LSR 1 byte
-    buffer[3] = (timer & 0xFFU);
-}
-
 void ADC_Init(void)
 {
+    ////////////////////////
+    ////// RESOLUTION //////
+    ////////////////////////
     ADC_CFGR |= RESOLUTION; // 8-bit resolution
 
+    ////////////////////////
+    //////// CLOCK /////////
+    ////////////////////////
     RCC_CCIPR |= ADC_CLOCK; // selects system clock as ADC clock
 
     ADC_CCR |= ADC_PRESCALER; // divides clock by 128
     ADC_CCR |= CLOCK_MODE; // sets clock = HCLK
+
+    RCC_AHB2ENR |= ADCEN; // enabled ADC clock
+
+    ////////////////////////
+    ////// PIN SETUP ///////
+    ////////////////////////
+    GPIOC->MODER &= PC5_MASK; // clears bits [11:10]
+    GPIOC->MODER |= ANALOG_FUNC; // analog mode for PC5
+
+    ADC_CR |= ADVREGEN; // turns on ADC's internal power supply
+
+    ADC_SQR1 |= 
 }
 
 void SysTick_Init(void)
@@ -199,6 +210,22 @@ void SysTick_Handler(void)
 {
     /* Executed on each 1ms interrupt */
     timer++; // increment timer
+}
+
+void ADC_Int_To_Bytes(uint32_t ADC_Int) // uint32_t, big endian
+{
+    buffer[0] = ((ADC_Int & 0xFF000000U) >> 24); // LSR 3 bytes
+    buffer[1] = ((ADC_Int & 0xFF0000U) >> 16); // LSR 2 bytes
+    buffer[2] = ((ADC_Int & 0xFF00U) >> 8); // LSR 1 byte
+    buffer[3] = (ADC_Int & 0xFFU);
+}
+
+void Timer_To_Bytes(void) // uint32_t, big endian
+{
+    buffer[0] = ((timer & 0xFF000000U) >> 24); // LSR 3 bytes
+    buffer[1] = ((timer & 0xFF0000U) >> 16); // LSR 2 bytes
+    buffer[2] = ((timer & 0xFF00U) >> 8); // LSR 1 byte
+    buffer[3] = (timer & 0xFFU);
 }
 
 int main(void)
