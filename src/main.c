@@ -133,7 +133,6 @@ void UART_Setup(void)
 void UART4_GPIO_Init(void)
 {
     RCC_AHB2ENR |= GPIOA_CLOCK; // enables GPIOA clock
-
     /*
         MODER
         00: Input
@@ -164,14 +163,8 @@ void UART_Transmit_Ptr(char *buff)
 
 void ADC_Init(void)
 {
-    ////////////////////////
-    ////// RESOLUTION //////
-    ////////////////////////
     ADC_CFGR |= RESOLUTION; // 8-bit resolution
 
-    ////////////////////////
-    //////// CLOCK /////////
-    ////////////////////////
     RCC_CCIPR |= ADC_CLOCK; // selects system clock as ADC clock
 
     ADC_CCR |= ADC_PRESCALER; // divides clock by 128
@@ -179,15 +172,13 @@ void ADC_Init(void)
 
     RCC_AHB2ENR |= ADCEN; // enabled ADC clock
 
-    ////////////////////////
-    ////// PIN SETUP ///////
-    ////////////////////////
     GPIOC->MODER &= PC5_MASK; // clears bits [11:10]
     GPIOC->MODER |= ANALOG_FUNC; // analog mode for PC5
 
     ADC_CR |= ADVREGEN; // turns on ADC's internal power supply
 
-    ADC_SQR1 |= 
+    // TODO: SET UP ADC CHANNEL CONFIGURATION
+    ADC_SQR1 |=
 }
 
 void SysTick_Init(void)
