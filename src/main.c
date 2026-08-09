@@ -161,7 +161,7 @@ void UART_Transmit_Ptr(char *buff)
     }
 }
 
-void ADC_Init(void)
+void ADC_Init(void) /* A0, PC5, ADC */
 {
     ADC_CFGR |= RESOLUTION; // 8-bit resolution
 
@@ -242,5 +242,3 @@ int main(void)
     }
     return 0; // never reached
 }
-
-/* A0, PC5, ADC */
