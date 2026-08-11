@@ -19,7 +19,7 @@ typedef signed long long    int64_t;
 #define RCC_BASE        (AHB1PERIPH_BASE + 0x1000U)
 #define GPIOA_BASE      (AHB2PERIPH_BASE + 0U)
 #define GPIOC_BASE      (AHB2PERIPH_BASE + 0x800U)
-#define ADC_BASE        (AHB2PERIPH_BASE + 0x40000U)
+#define ADC_BASE        (AHB2PERIPH_BASE + 0x8040000U)
 #define ADC1_BASE       (ADC_BASE)
 #define SYSTICK_BASE    (0xE000E010U)
 
@@ -37,9 +37,12 @@ typedef signed long long    int64_t;
 #define USART_TDR       (*(volatile uint32_t *)(UART4_BASE + 0x28U))
 
 /* ADC Addresses */
+#define ADC_ISR         (*(volatile uint32_t *)(ADC1_BASE))
 #define ADC_CR          (*(volatile uint32_t *)(ADC1_BASE + 0x8U))
 #define ADC_CFGR        (*(volatile uint32_t *)(ADC1_BASE + 0xCU))
+#define ADC_SMPR2       (*(volatile uint32_t *)(ADC1_BASE + 0x18U))
 #define ADC_SQR1        (*(volatile uint32_t *)(ADC1_BASE + 0x30U))
+#define ADC_DR          (*(volatile uint32_t *)(ADC1_BASE + 0x40U))
 #define ADC_CCR         (*(volatile uint32_t *)(ADC1_BASE + 0x308U))
 
 /* SysTick Timer Addresses */
@@ -67,16 +70,21 @@ typedef struct
 
 /* GPIOA */
 #define GPIOA           ((GPIO_TypeDef *)(GPIOA_BASE))
-#define GPIOA_CLOCK     (1U << 0)
+#define GPIOA_CLOCK     (1 << 0)
 #define PA0_MASK        (0xFFFFFFFCU)
-#define UART_OUTPUT     (1U << 1)
+#define UART_OUTPUT     (1 << 1)
 
 /* GPIOC */
 #define GPIOC           ((GPIO_TypeDef *)(GPIOC_BASE))
+#define GPIOC_CLOCK     (1 << 2)
 #define PC5_MASK        (0xFFFFF3FFU)
 #define ANALOG_BIT_11   (1 << 11)
 #define ANALOG_BIT_10   (1 << 10)
-#define ANALOG_FUNC     (ANALOG_BIT_11 | ANALOG_BIT_10) // 11
+#define ANALOG_FUNC_5   (ANALOG_BIT_11 | ANALOG_BIT_10) // 11
+#define PC4_MASK        (0xFFFFFCFFU)
+#define ANALOG_BIT_9    (1 << 9)
+#define ANALOG_BIT_8    (1 << 8)
+#define ANALOG_FUNC_4   (ANALOG_BIT_9 | ANALOG_BIT_8) // 11
 
 /* MSI FREQUENCY */
 #define MSI_MASK        (0xFFFFFF0FU)
@@ -100,14 +108,26 @@ typedef struct
 #define AF8_UART4       (1 << 3) // Alternate Function for UART
 
 /* ADC */
-#define RESOLUTION      (1 << 4) // 10
+#define RESOLUTION      (1 << 4) // bits [4:3] = 10
 #define ADC_PRESCALER   (0x3F2) // 0b1010
 #define CLOCK_MODE      (1 << 16)
+#define PRESCALER_CLOCK (ADC_PRESCALER | CLOCK_MODE)
 #define CLOCK_BIT_29    (1 << 29)
 #define CLOCK_BIT_28    (1 << 28)
 #define ADC_CLOCK       (CLOCK_BIT_29 | CLOCK_BIT_28) // 11
 #define ADCEN           (1 << 13)
 #define ADVREGEN        (1 << 28) // ADC Voltage Regulator Enable
+#define CHN_PC5         (14) // A0
+#define CHN_PC4         (13) // A1
+#define CONVERSION_NUM  (0x1U) // number of conversions = 2
+#define DEEPPWD         (1 << 29) // deep-power-down enable bit for ADC
+#define ADCAL           (1 << 31) // ADC calibration
+#define ADEN            (1 << 0) // ADC enable control
+#define ADRDY           (1 << 0) // ADC ready bit
+#define SAMPLING_CHN_14 (1 << 14) // 100 = 47.5 ADC clock cycles
+#define SAMPLING_CHN_13 (1 << 11) // 100 = 47.5 ADC clock cycles
+#define SAMPLING_CHN    (SAMPLING_CHN_14 | SAMPLING_CHN_13)
+#define ADSTART         (1 << 2)
 
 /* SysTick Control and Status Register */
 #define AHB_CLOCK       (1 << 2)
@@ -161,24 +181,59 @@ void UART_Transmit_Ptr(char *buff)
     }
 }
 
-void ADC_Init(void) /* A0, PC5, ADC */
+/* 
+    A0, PC5, ADC 
+    A1, PC4, ADC
+*/
+
+void ADC_Pin_Setup(void)
+{
+    RCC_AHB2ENR |= GPIOC_CLOCK; // enables GPIOC clock
+
+    GPIOC->MODER &= PC5_MASK; // clears bits [11:10]
+    GPIOC->MODER |= ANALOG_FUNC_5; // analog mode for PC5
+
+    GPIOC->MODER &= PC4_MASK; // clears bits [9:8]
+    GPIOC->MODER |= ANALOG_FUNC_4; // analog mode for PC4
+}
+
+void ADC_Clock_Init(void)
+{
+    RCC_CCIPR |= ADC_CLOCK; // selects system clock as ADC clock
+    ADC_CCR |= PRESCALER_CLOCK; // divides clock by 128, sets clock = HCLK
+    RCC_AHB2ENR |= ADCEN; // enabled ADC clock
+}
+
+void ADC_Init(void)
 {
     ADC_CFGR |= RESOLUTION; // 8-bit resolution
 
-    RCC_CCIPR |= ADC_CLOCK; // selects system clock as ADC clock
-
-    ADC_CCR |= ADC_PRESCALER; // divides clock by 128
-    ADC_CCR |= CLOCK_MODE; // sets clock = HCLK
-
-    RCC_AHB2ENR |= ADCEN; // enabled ADC clock
-
-    GPIOC->MODER &= PC5_MASK; // clears bits [11:10]
-    GPIOC->MODER |= ANALOG_FUNC; // analog mode for PC5
-
+    ADC_CR &= ~DEEPPWD; // disables deep-power-down mode for ADC
     ADC_CR |= ADVREGEN; // turns on ADC's internal power supply
 
-    // TODO: SET UP ADC CHANNEL CONFIGURATION
-    ADC_SQR1 |=
+    volatile int delay;
+    for (delay = 0; delay < 360; delay++); // ~20uS delay
+
+    ADC_CR |= ADCAL; // enables ADC calibration
+    while (ADC_CR & ADCAL); // waits for ADCAL to be 0 (calibration complete)
+
+    ADC_CR |= ADEN; // ADC enable
+    while (!(ADC_ISR & ADRDY)); // waits for ADC to be ready
+
+    /*
+        enable ADC sampling for Channel 14
+        enable ADC sampling for Channel 13
+    */
+    ADC_SMPR2 |= SAMPLING_CHN;
+}
+
+uint8_t Get_ADC_Val(unsigned int channel)
+{
+    ADC_SQR1 = channel;
+
+    ADC_CR |= ADSTART; // 1 to start converison
+    while (ADC_CR & ADSTART); // 0 if no converison is ongoing
+    return (ADC_DR & 0xFFU);
 }
 
 void SysTick_Init(void)
@@ -223,22 +278,27 @@ int main(void)
 {
     UART4_GPIO_Init(); // initialize UART4 pin
     UART_Setup(); // setup UART
+    ADC_Pin_Setup(); // sets up A0 and A1 as ADC pins
+    ADC_Clock_Init(); // initialized ADC's clock
+    ADC_Init(); // initializes ADC
     SysTick_Init(); // initialize SysTick
 
-    uint8_t ADC_Int = ADC;
-    uint8_t ADC_prev;
+    uint8_t ADC_Val;
+    uint16_t ADC_Buffer = 0;
 
     while (1)
     {
-        if (ADC_Int != ADC_prev)
-        {
-            ADC_Int_To_Bytes(ADC_Int);
-            UART_Transmit_Ptr(buffer); // transmit ADC_Int on D1, PA0
+        ADC_Val = Get_ADC_Val(CHN_PC5 << 6);
+        ADC_Buffer = ADC_Val;
 
-            Timer_To_Bytes();
-            UART_Transmit_Ptr(buffer); // transmit Timer on D1, PA0
-            ADC_Prev = ADC_Int;
-        }
+        ADC_Val = Get_ADC_Val(CHN_PC4 << 12);
+        ADC_Buffer |= (ADC_Val << 8);
+
+        ADC_Int_To_Bytes(ADC_Buffer);
+        UART_Transmit_Ptr(buffer); // transmit ADC_Int on D1, PA0
+
+        Timer_To_Bytes();
+        UART_Transmit_Ptr(buffer); // transmit Timer on D1, PA0
     }
     return 0; // never reached
 }
