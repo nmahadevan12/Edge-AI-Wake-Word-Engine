@@ -291,7 +291,7 @@ int main(void)
         ADC_Val = Get_ADC_Val(CHN_PC5 << 6);
         ADC_Buffer = ADC_Val;
 
-        ADC_Val = Get_ADC_Val(CHN_PC4 << 12);
+        ADC_Val = Get_ADC_Val(CHN_PC4 << 6);
         ADC_Buffer |= (ADC_Val << 8);
 
         ADC_Int_To_Bytes(ADC_Buffer);
