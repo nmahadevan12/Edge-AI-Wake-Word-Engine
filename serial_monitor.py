@@ -13,7 +13,7 @@ except ImportError:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Dump UART: uint32 number + uint32 timer (8-byte frame)"
+        description="Dump UART: ADC pair BE + timer BE (8-byte frame)"
     )
     parser.add_argument(
         "port",
@@ -38,7 +38,7 @@ def main() -> None:
 
     try:
         while True:
-            # Firmware sends 8 bytes: [number 4 BE][timer 4 BE]
+            # 00 00 A1 A0 | t3 t2 t1 t0
             b = ser.read(8)
             print(f"{b[0:4].hex(' ')}  {b[4:8].hex(' ')}")
     except KeyboardInterrupt:

@@ -85,6 +85,9 @@ typedef struct
 #define ANALOG_BIT_9    (1 << 9)
 #define ANALOG_BIT_8    (1 << 8)
 #define ANALOG_FUNC_4   (ANALOG_BIT_9 | ANALOG_BIT_8) // 11
+#define ANALOG_SWITCH_5 (1 << 5)
+#define ANALOG_SWITCH_4 (1 << 4)
+#define ANALOG_SWITCH   (ANALOG_SWITCH_5 | ANALOG_SWITCH_4)
 
 /* MSI FREQUENCY */
 #define MSI_MASK        (0xFFFFFF0FU)
@@ -109,9 +112,9 @@ typedef struct
 
 /* ADC */
 #define RESOLUTION      (1 << 4) // bits [4:3] = 10
-#define ADC_PRESCALER   (0x3F2) // 0b1010
 #define CLOCK_MODE      (1 << 16)
-#define PRESCALER_CLOCK (ADC_PRESCALER | CLOCK_MODE)
+#define PRESCALER       (0xAU) // 1010 = HCLK divide by 128 (125 kHz)
+#define ADC_PRESCALER   (PRESCALER << 18)
 #define CLOCK_BIT_29    (1 << 29)
 #define CLOCK_BIT_28    (1 << 28)
 #define ADC_CLOCK       (CLOCK_BIT_29 | CLOCK_BIT_28) // 11
@@ -136,7 +139,6 @@ typedef struct
 #define TICK_INTERRUPT  (1 << 1)
 #define CLK_SOURCE_INT  (AHB_CLOCK | TICK_INTERRUPT)
 
-char buffer[4]; // buffer = 4 bytes
 uint32_t timer = 0; // defined globally since it's used for interrupts
 
 void UART_Setup(void)
@@ -165,13 +167,13 @@ void UART4_GPIO_Init(void)
     GPIOA->AFRL = AF8_UART4; // sets alternate function for PA0
 }
 
-void UART_Transmit(char buff)
+void UART_Transmit(unsigned char buff)
 {
     while (!(USART_ISR & UART_TXE)); // waits until data is transferred to shift register, waits until TXE bit = 1
     USART_TDR = buff; // sets Transmit Data Register = buff
 }
 
-void UART_Transmit_Ptr(char *buff)
+void UART_Transmit_Ptr(unsigned char *buff)
 {
     uint8_t i;
     for (i = 0; i < 4; i++) // runs four times
@@ -195,12 +197,14 @@ void ADC_Pin_Setup(void)
 
     GPIOC->MODER &= PC4_MASK; // clears bits [9:8]
     GPIOC->MODER |= ANALOG_FUNC_4; // analog mode for PC4
+
+    GPIOC->ASCR |= ANALOG_SWITCH; // enable PC5 and PC4 as ADC pins
 }
 
 void ADC_Clock_Init(void)
 {
     RCC_CCIPR |= ADC_CLOCK; // selects system clock as ADC clock
-    ADC_CCR |= PRESCALER_CLOCK; // divides clock by 128, sets clock = HCLK
+    ADC_CCR |= ADC_PRESCALER; // divides clock by 128
     RCC_AHB2ENR |= ADCEN; // enabled ADC clock
 }
 
@@ -212,8 +216,9 @@ void ADC_Init(void)
     ADC_CR |= ADVREGEN; // turns on ADC's internal power supply
 
     volatile int delay;
-    for (delay = 0; delay < 360; delay++); // ~20uS delay
+    for (delay = 0; delay < 500; delay++); // ~20uS delay
 
+    /* Calibration then Enable */
     ADC_CR |= ADCAL; // enables ADC calibration
     while (ADC_CR & ADCAL); // waits for ADCAL to be 0 (calibration complete)
 
@@ -258,20 +263,15 @@ void SysTick_Handler(void)
     timer++; // increment timer
 }
 
-void ADC_Int_To_Bytes(uint32_t ADC_Int) // uint32_t, big endian
+void Convert_To_Bytes(uint32_t value) // uint32_t, big endian
 {
-    buffer[0] = ((ADC_Int & 0xFF000000U) >> 24); // LSR 3 bytes
-    buffer[1] = ((ADC_Int & 0xFF0000U) >> 16); // LSR 2 bytes
-    buffer[2] = ((ADC_Int & 0xFF00U) >> 8); // LSR 1 byte
-    buffer[3] = (ADC_Int & 0xFFU);
-}
+    unsigned char buffer[4]; // buffer = 4 bytes
 
-void Timer_To_Bytes(void) // uint32_t, big endian
-{
-    buffer[0] = ((timer & 0xFF000000U) >> 24); // LSR 3 bytes
-    buffer[1] = ((timer & 0xFF0000U) >> 16); // LSR 2 bytes
-    buffer[2] = ((timer & 0xFF00U) >> 8); // LSR 1 byte
-    buffer[3] = (timer & 0xFFU);
+    buffer[0] = (unsigned char) ((value & 0xFF000000UL) >> 24); // LSR 3 bytes
+    buffer[1] = (unsigned char) ((value & 0x00FF0000UL) >> 16); // LSR 2 bytes
+    buffer[2] = (unsigned char) ((value & 0x0000FF00UL) >> 8);  // LSR 1 byte
+    buffer[3] = (unsigned char) (value  & 0x000000FFUL);
+    UART_Transmit_Ptr(buffer);
 }
 
 int main(void)
@@ -283,22 +283,19 @@ int main(void)
     ADC_Init(); // initializes ADC
     SysTick_Init(); // initialize SysTick
 
-    uint8_t ADC_Val;
     uint16_t ADC_Buffer = 0;
+
+    volatile uint64_t x;
 
     while (1)
     {
-        ADC_Val = Get_ADC_Val(CHN_PC5 << 6);
-        ADC_Buffer = ADC_Val;
+        ADC_Buffer = Get_ADC_Val(CHN_PC5 << 6);
+        ADC_Buffer |= (Get_ADC_Val(CHN_PC4 << 6) << 8); // A1 ADC LSL 8 bits
 
-        ADC_Val = Get_ADC_Val(CHN_PC4 << 6);
-        ADC_Buffer |= (ADC_Val << 8);
+        Convert_To_Bytes(ADC_Buffer);    // transmit ADC_Int on D1, PA0
+        Convert_To_Bytes(timer);         // transmit Timer on D1, PA0
 
-        ADC_Int_To_Bytes(ADC_Buffer);
-        UART_Transmit_Ptr(buffer); // transmit ADC_Int on D1, PA0
-
-        Timer_To_Bytes();
-        UART_Transmit_Ptr(buffer); // transmit Timer on D1, PA0
+        for (x = 0; x < 1000000; x++);
     }
     return 0; // never reached
 }
