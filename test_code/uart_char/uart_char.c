@@ -58,6 +58,7 @@ typedef struct
 #define WORD_LENGTH_0   (0 << 12) // M0
 #define WORD_LENGTH     (WORD_LENGTH_1 | WORD_LENGTH_0)
 #define TX_ENABLE       (1 << 3)
+#define WORD_LEN_TX_EN  (WORD_LENGTH | TX_ENABLE)
 #define UART_ENABLE     (1 << 0)
 
 /* UART Control Register 2 */
@@ -75,8 +76,7 @@ void UART_Setup(void)
 {
     RCC_APB1ENR1 |= UART4_EN; // enable clock
 
-    USART_CR1 |= WORD_LENGTH; // 1 start bit, 8 data bits
-    USART_CR1 |= TX_ENABLE; // enables TX
+    USART_CR1 |= WORD_LEN_TX_EN; // 1 start bit, 8 data bits; enables TX
     USART_CR2 |= STOP_BITS; // 2 stop bits
 
     RCC_CR &= MSI_MASK; // clear MSI bits
