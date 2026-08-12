@@ -18,6 +18,7 @@ typedef signed long long    int64_t;
 #define UART4_BASE      (APB1PERIPH_BASE + 0x4C00U)
 #define RCC_BASE        (AHB1PERIPH_BASE + 0x1000U)
 #define GPIOA_BASE      (AHB2PERIPH_BASE + 0U)
+#define GPIOE_BASE      (AHB2PERIPH_BASE + 0x1000U)
 #define SYSTICK_BASE    (0xE000E010U)
 
 /* RCC Register Addresses */
@@ -57,9 +58,17 @@ typedef struct
 
 /* GPIOA */
 #define GPIOA           ((GPIO_TypeDef *)(GPIOA_BASE))
-#define GPIOA_CLOCK     (1U << 0)
+#define GPIOA_CLOCK     (1 << 0)
 #define PA0_MASK        (0xFFFFFFFCU)
-#define UART_OUTPUT     (1U << 1)
+#define UART_OUTPUT     (1 << 1)
+
+/* GPIOE */
+#define GPIOE           ((GPIO_TypeDef *)(GPIOE_BASE))
+#define GPIOE_CLOCK     (1 << 4)
+#define PE9_MASK        (0xFFF3FFFFU)
+#define MIC_CLOCK       (1 << 19)
+#define PE7_MASK        (0xFFFF3FFFU)
+#define MIC_DATA        (1 << 15)
 
 /* MSI FREQUENCY */
 #define MSI_MASK        (0xFFFFFF0FU)
@@ -70,25 +79,27 @@ typedef struct
 /* UART */
 #define UART4_EN        (1 << 19)
 #define BAUD_DIV_115200 (139) // Clock Hz (16 MHz), 115200
-
-/* UART Control Register 1 */
 #define WORD_LENGTH_1   (0 << 28) // M1
 #define WORD_LENGTH_0   (0 << 12) // M0
 #define WORD_LENGTH     (WORD_LENGTH_1 | WORD_LENGTH_0)
 #define TX_ENABLE       (1 << 3)
 #define WORD_LEN_TX_EN  (WORD_LENGTH | TX_ENABLE)
 #define UART_ENABLE     (1 << 0)
-
-/* UART Control Register 2 */
 #define STOP_1          (1 << 13)
 #define STOP_2          (0 << 12)
 #define STOP_BITS       (STOP_1 | STOP_2)
-
-/* UART Interrupt and Status Register */
 #define UART_TXE        (0x80U)
 
 /* Alternate Function Register Low */
 #define AF8_UART4       (1 << 3)
+#define AF6_MIC_BIT_30  (1 << 30)
+#define AF6_MIC_BIT_29  (1 << 29)
+#define AF6_MIC_PE7     (AF6_MIC_BIT_30 | AF6_MIC_BIT_29)
+
+/* Alternate Function Register High */
+#define AF6_MIC_BIT_6   (1 << 6)
+#define AF6_MIC_BIT_5   (1 << 5)
+#define AF6_MIC_PE9     (AF6_MIC_BIT_6 | AF6_MIC_BIT_5)
 
 /* SysTick Control and Status Register */
 #define AHB_CLOCK       (1 << 2)
@@ -138,6 +149,21 @@ void UART_Transmit_Ptr(char *buff)
     }
 }
 
+void Microphone_Setup(void)
+{
+    RCC_AHB2ENR |= GPIOE_CLOCK; // enables GPIOE clock
+
+    /* PE9: Clock */
+    GPIOE->MODER &= PE9_MASK; // clear bits [19:18]
+    GPIOE->MODER |= MIC_CLOCK; // alternate function mode 
+    GPIOE->AFRH |= AF6_MIC_PE9; // sets alternate function for PE9
+
+    /* PE7: Data */
+    GPIOE->MODER &= PE7_MASK; // clear bits [15:14]
+    GPIOE->MODER |= MIC_DATA; // alternate function mode
+    GPIO->AFRL |= AF6_MIC_PE7; // sets alternate function for PE9
+}
+
 void Convert_To_Bytes(uint32_t value) // uint32_t, big endian
 {
     unsigned char buffer[4]; // buffer = 4 bytes
@@ -166,6 +192,10 @@ void SysTick_Init(void)
     STK_CTRL |= COUNTER_ENABLE; // enable SysTick counter
 }
 
+/*
+    PE9, MEMS microphone, DFSDM1_CKOUT
+*/
+
 void SysTick_Handler(void)
 {
     /* Executed on each 1ms interrupt */
@@ -183,8 +213,8 @@ int main(void)
 
     while (1)
     {
-        Number_To_Bytes(number);
-        Timer_To_Bytes(timer);
+        Convert_To_Bytes(number);
+        Convert_To_Bytes(timer);
 
         number++; // increment number
         for (x = 0; x < (1000000); x++); // delay
