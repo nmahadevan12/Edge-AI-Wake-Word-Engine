@@ -13,8 +13,10 @@ typedef signed long long    int64_t;
 /* Base Addresses */
 #define PERIPH_BASE     (0x40000000U)
 #define APB1PERIPH_BASE (PERIPH_BASE)
+#define APB2PERIPH_BASE (PERIPH_BASE + 0x10000U)
 #define AHB1PERIPH_BASE (PERIPH_BASE + 0x20000U)
 #define AHB2PERIPH_BASE (PERIPH_BASE + 0x8000000U)
+#define DFSDM1_BASE     (APB2PERIPH_BASE + 0x6000U)
 #define UART4_BASE      (APB1PERIPH_BASE + 0x4C00U)
 #define RCC_BASE        (AHB1PERIPH_BASE + 0x1000U)
 #define GPIOA_BASE      (AHB2PERIPH_BASE + 0U)
@@ -24,6 +26,7 @@ typedef signed long long    int64_t;
 /* RCC Register Addresses */
 #define RCC_CR          (*(volatile uint32_t *)(RCC_BASE))
 #define RCC_APB1ENR1    (*(volatile uint32_t *)(RCC_BASE + 0x58U))
+#define RCC_APB2ENR     (*(volatile uint32_t *)(RCC_BASE + 0x60U))
 #define RCC_AHB2ENR     (*(volatile uint32_t *)(RCC_BASE + 0x4CU))
 
 /* UART Register Addresses*/
@@ -32,6 +35,11 @@ typedef signed long long    int64_t;
 #define USART_BRR       (*(volatile uint32_t *)(UART4_BASE + 0xCU))
 #define USART_ISR       (*(volatile uint32_t *)(UART4_BASE + 0x1CU))
 #define USART_TDR       (*(volatile uint32_t *)(UART4_BASE + 0x28U))
+
+/* DFSDM Register Addresses */
+#define CH0CFGR1        (*(volatile uint32_t *)(DFSDM1_BASE))
+#define CH2CFGR1        (*(volatile uint32_t *)(DFSDM1_BASE + 0x40U))
+#define FLT0CR1         (*(volatile uint32_t *)(DFSDM1_BASE + 0x100U))
 
 /* SysTick Timer Addresses */
 #define STK_CTRL        (*(volatile uint32_t *)(SYSTICK_BASE))
@@ -108,6 +116,13 @@ typedef struct
 #define TICK_INTERRUPT  (1 << 1)
 #define CLK_SOURCE_INT  (AHB_CLOCK | TICK_INTERRUPT)
 
+/* MIC */
+#define DFSDM1EN        (1 << 24) // DFSDM1 clock enabled
+#define CKOUTDIV        (0x7U) // divides output clock
+#define DFSDMEN         (1 << 31) // DFSDM globally enabled
+#define CHEN            (1 << 7) // channel enable
+#define DFEN            (1 << 0) // digital filter enable
+
 uint32_t timer = 0; // defined globally since it's used for interrupts
 
 void UART_Setup(void)
@@ -149,19 +164,39 @@ void UART_Transmit_Ptr(char *buff)
     }
 }
 
-void Microphone_Setup(void)
+void Mic_Setup(void)
 {
     RCC_AHB2ENR |= GPIOE_CLOCK; // enables GPIOE clock
 
     /* PE9: Clock */
     GPIOE->MODER &= PE9_MASK; // clear bits [19:18]
-    GPIOE->MODER |= MIC_CLOCK; // alternate function mode 
+    GPIOE->MODER |= MIC_CLOCK; // alternate function mode
     GPIOE->AFRH |= AF6_MIC_PE9; // sets alternate function for PE9
 
     /* PE7: Data */
     GPIOE->MODER &= PE7_MASK; // clear bits [15:14]
     GPIOE->MODER |= MIC_DATA; // alternate function mode
-    GPIO->AFRL |= AF6_MIC_PE7; // sets alternate function for PE9
+    GPIOE->AFRL |= AF6_MIC_PE7; // sets alternate function for PE9
+}
+
+void DFSDM_Setup(void)
+{
+    RCC_APB2ENR |= DFSDM1EN; // DFSDM1 clock enable
+    
+    /*
+        VAL + 1 = CLK / OUTPUT_CLK
+
+        CLK: 16 MHz, OUTPUT_CLK: 2 MHz
+        VAL = 8 - 1 = 7
+    */
+    CH0CFGR1 |= CKOUTDIV; // divides output clock
+
+    /* Clock divider, then enable filter */
+    CH0CFGR1 |= DFSDMEN; // enable DFSDM interface
+
+    CH2CFGR1 |= CHEN; // channel 2 enable, PE7
+
+    FLT0CR1 |= DFEN; // digital filter 0 enable
 }
 
 void Convert_To_Bytes(uint32_t value) // uint32_t, big endian
@@ -207,6 +242,8 @@ int main(void)
     UART4_GPIO_Init(); // initialize UART4 pin
     UART_Setup(); // setup UART
     SysTick_Init(); // initialize SysTick
+    Mic_Setup(); // setup mic
+    DFSDM_Setup(); // digital filter setup
 
     uint32_t number = 0;
     volatile uint32_t x; // used for delay
