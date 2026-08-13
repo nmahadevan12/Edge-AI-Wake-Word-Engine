@@ -118,9 +118,12 @@ typedef struct
 
 /* MIC */
 #define DFSDM1EN        (1 << 24) // DFSDM1 clock enabled
-#define CKOUTDIV        (0x7U) // divides output clock
+#define CKOUTDIV        (0x7U << 16) // divides output clock, bits [23:16]
 #define DFSDMEN         (1 << 31) // DFSDM globally enabled
+#define CLK_DIV_DFSDMEN (CKOUTDIV | DFSDMEN)
 #define CHEN            (1 << 7) // channel enable
+#define SPICKSEL        (1 << 2) // bits = 01
+#define CHEN_SPICKSEL   (CHEN | SPICKSEL)
 #define DFEN            (1 << 0) // digital filter enable
 
 uint32_t timer = 0; // defined globally since it's used for interrupts
@@ -182,19 +185,17 @@ void Mic_Setup(void)
 void DFSDM_Setup(void)
 {
     RCC_APB2ENR |= DFSDM1EN; // DFSDM1 clock enable
-    
+
     /*
         VAL + 1 = CLK / OUTPUT_CLK
 
         CLK: 16 MHz, OUTPUT_CLK: 2 MHz
         VAL = 8 - 1 = 7
     */
-    CH0CFGR1 |= CKOUTDIV; // divides output clock
 
-    /* Clock divider, then enable filter */
-    CH0CFGR1 |= DFSDMEN; // enable DFSDM interface
+    CH0CFGR1 |= CLK_DIV_DFSDMEN; // divides output clock; enable DFSDM interface
 
-    CH2CFGR1 |= CHEN; // channel 2 enable, PE7
+    CH2CFGR1 |= CHEN_SPICKSEL; // channel 2 enable, PE7; clock comes from internal CKOUT output
 
     FLT0CR1 |= DFEN; // digital filter 0 enable
 }
