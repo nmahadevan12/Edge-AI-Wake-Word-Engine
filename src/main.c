@@ -40,7 +40,10 @@ typedef signed long long    int64_t;
 #define CH0CFGR1        (*(volatile uint32_t *)(DFSDM1_BASE))
 #define CH2CFGR1        (*(volatile uint32_t *)(DFSDM1_BASE + 0x40U))
 #define FLT0CR1         (*(volatile uint32_t *)(DFSDM1_BASE + 0x100U))
+#define FLT0ISR         (*(volatile uint32_t *)(DFSDM1_BASE + 0x108U))
+#define FLT0ICR         (*(volatile uint32_t *)(DFSDM1_BASE + 0x10CU))
 #define FLT0FCR         (*(volatile uint32_t *)(DFSDM1_BASE + 0x114U))
+#define FLT0RDATAR      (*(volatile uint32_t *)(DFSDM1_BASE + 0x11CU))
 
 /* SysTick Timer Addresses */
 #define STK_CTRL        (*(volatile uint32_t *)(SYSTICK_BASE))
@@ -133,6 +136,8 @@ typedef struct
 #define RCONT           (1 << 18)
 #define CHEN_DFEN_RCONT (RCH | DFEN | RCONT)
 #define RSWSTART        (1 << 17)
+#define ROVRF           (1 << 3)
+#define CLRROVRF        (1 << 3)
 
 uint32_t timer = 0; // defined globally since it's used for interrupts
 
@@ -209,7 +214,13 @@ void DFSDM_Setup(void)
 
 void Get_Mic_Sample(void)
 {
+    while (!(FLT0ICR & ROVRF)); // wait until a regular conversion has occured
 
+    uint32_t mic_data = FLT0RDATAR >> 8; // mic_data = bits[31:8] of FLT0RDATAR register
+
+    Convert_To_Bytes(mic_data); // pass in 32-bit mic_data number in Convert_To_Bytes function
+
+    FLT0ICR |= CLRROVRF; // clears the ROVRF bit in FLT0ICR register
 }
 
 void SysTick_Init(void)
@@ -276,7 +287,7 @@ int main(void)
 
     while (1)
     {
-        Convert_To_Bytes(timer);
+        Get_Mic_Sample();
     }
     return 0; // never reached
 }
