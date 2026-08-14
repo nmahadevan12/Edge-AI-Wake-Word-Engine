@@ -131,8 +131,8 @@ typedef struct
 #define FOSR            (63 << 16)
 #define SINC_3_FOSR     (SINC_3_FILTER | FOSR)
 #define RCONT           (1 << 18)
-#define RSWSTART        (1 << 17)
 #define CHEN_DFEN_RCONT (RCH | DFEN | RCONT)
+#define RSWSTART        (1 << 17)
 
 uint32_t timer = 0; // defined globally since it's used for interrupts
 
@@ -157,22 +157,6 @@ void UART4_GPIO_Init(void)
     GPIOA->MODER &= PA0_MASK; // clears bits [1:0]
     GPIOA->MODER |= UART_OUTPUT; // alternate fucntion mode (UART)
     GPIOA->AFRL = AF8_UART4; // sets alternate function for PA0
-}
-
-void UART_Transmit(char buff)
-{
-    while (!(USART_ISR & UART_TXE)); // waits until data is transferred to shift register, waits until TXE bit = 1
-    USART_TDR = buff; // sets Transmit Data Register = buff
-}
-
-void UART_Transmit_Ptr(char *buff)
-{
-    uint8_t i;
-    for (i = 0; i < 4; i++) // runs four times
-    {
-        UART_Transmit(*buff);
-        buff++;
-    }
 }
 
 void Mic_Setup(void)
@@ -225,18 +209,7 @@ void DFSDM_Setup(void)
 
 void Get_Mic_Sample(void)
 {
-    
-}
 
-void Convert_To_Bytes(uint32_t value) // uint32_t, big endian
-{
-    unsigned char buffer[4]; // buffer = 4 bytes
-
-    buffer[0] = (unsigned char) ((value & 0xFF000000UL) >> 24); // LSR 3 bytes
-    buffer[1] = (unsigned char) ((value & 0x00FF0000UL) >> 16); // LSR 2 bytes
-    buffer[2] = (unsigned char) ((value & 0x0000FF00UL) >> 8);  // LSR 1 byte
-    buffer[3] = (unsigned char) (value  & 0x000000FFUL);
-    UART_Transmit_Ptr(buffer);
 }
 
 void SysTick_Init(void)
@@ -256,15 +229,42 @@ void SysTick_Init(void)
     STK_CTRL |= COUNTER_ENABLE; // enable SysTick counter
 }
 
-/*
-    PE9, MEMS microphone, DFSDM1_CKOUT
-*/
-
 void SysTick_Handler(void)
 {
     /* Executed on each 1ms interrupt */
     timer++; // increment timer
 }
+
+void Convert_To_Bytes(uint32_t value) // uint32_t, big endian
+{
+    unsigned char buffer[4]; // buffer = 4 bytes
+
+    buffer[0] = (unsigned char) ((value & 0xFF000000UL) >> 24); // LSR 3 bytes
+    buffer[1] = (unsigned char) ((value & 0x00FF0000UL) >> 16); // LSR 2 bytes
+    buffer[2] = (unsigned char) ((value & 0x0000FF00UL) >> 8);  // LSR 1 byte
+    buffer[3] = (unsigned char) (value  & 0x000000FFUL);
+    UART_Transmit_Ptr(buffer);
+}
+
+void UART_Transmit(char buff)
+{
+    while (!(USART_ISR & UART_TXE)); // waits until data is transferred to shift register, waits until TXE bit = 1
+    USART_TDR = buff; // sets Transmit Data Register = buff
+}
+
+void UART_Transmit_Ptr(char *buff)
+{
+    uint8_t i;
+    for (i = 0; i < 4; i++) // runs four times
+    {
+        UART_Transmit(*buff);
+        buff++;
+    }
+}
+
+/*
+    PE9, MEMS microphone, DFSDM1_CKOUT
+*/
 
 int main(void)
 {
@@ -274,16 +274,9 @@ int main(void)
     Mic_Setup(); // setup mic
     DFSDM_Setup(); // digital filter setup
 
-    uint32_t number = 0;
-    volatile uint32_t x; // used for delay
-
     while (1)
     {
-        Convert_To_Bytes(number);
         Convert_To_Bytes(timer);
-
-        number++; // increment number
-        for (x = 0; x < (1000000); x++); // delay
     }
     return 0; // never reached
 }
