@@ -214,7 +214,7 @@ void DFSDM_Setup(void)
 
 void Get_Mic_Sample(void)
 {
-    while (!(FLT0ICR & ROVRF)); // wait until a regular conversion has occured
+    while (!(FLT0ISR & ROVRF)); // wait until a regular conversion has occured
 
     uint32_t mic_data = FLT0RDATAR >> 8; // mic_data = bits[31:8] of FLT0RDATAR register
 
