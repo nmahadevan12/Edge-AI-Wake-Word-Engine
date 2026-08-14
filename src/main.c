@@ -40,6 +40,7 @@ typedef signed long long    int64_t;
 #define CH0CFGR1        (*(volatile uint32_t *)(DFSDM1_BASE))
 #define CH2CFGR1        (*(volatile uint32_t *)(DFSDM1_BASE + 0x40U))
 #define FLT0CR1         (*(volatile uint32_t *)(DFSDM1_BASE + 0x100U))
+#define FLT0FCR         (*(volatile uint32_t *)(DFSDM1_BASE + 0x114U))
 
 /* SysTick Timer Addresses */
 #define STK_CTRL        (*(volatile uint32_t *)(SYSTICK_BASE))
@@ -124,7 +125,14 @@ typedef struct
 #define CHEN            (1 << 7) // channel enable
 #define SPICKSEL        (1 << 2) // bits = 01
 #define CHEN_SPICKSEL   (CHEN | SPICKSEL)
+#define RCH             (1 << 25) // bits [26:24] = 010
 #define DFEN            (1 << 0) // digital filter enable
+#define SINC_3_FILTER   (3 << 29)
+#define FOSR            (63 << 16)
+#define SINC_3_FOSR     (SINC_3_FILTER | FOSR)
+#define RCONT           (1 << 18)
+#define RSWSTART        (1 << 17)
+#define CHEN_DFEN_RCONT (RCH | DFEN | RCONT)
 
 uint32_t timer = 0; // defined globally since it's used for interrupts
 
@@ -192,12 +200,32 @@ void DFSDM_Setup(void)
         CLK: 16 MHz, OUTPUT_CLK: 2 MHz
         VAL = 8 - 1 = 7
     */
-
     CH0CFGR1 |= CLK_DIV_DFSDMEN; // divides output clock; enable DFSDM interface
 
     CH2CFGR1 |= CHEN_SPICKSEL; // channel 2 enable, PE7; clock comes from internal CKOUT output
 
-    FLT0CR1 |= DFEN; // digital filter 0 enable
+    /*
+        SINC_3: Sinc 3 filter, usual default for PDM mics
+        FOSR: +/-262144 (FOSR^3 for Sinc 3)
+
+        FOSR val  = FOSR bits[9:0] + 1
+    */
+    FLT0FCR |= SINC_3_FOSR; // Sinc 3: usual default for PDM mics
+
+    /*
+        CHEN: selected channel 2
+        DFEN: digital filter 0 enable
+        RCONT: channel converted repeatedly after each conversion request
+    */
+    FLT0CR1 |= CHEN_DFEN_RCONT;
+
+    /* Wait for digital filter to be enabled (DFEN), then set RSWSTART = 1 */
+    FLT0CR1 |= RSWSTART; // makes a request to start conversion on the regular channel
+}
+
+void Get_Mic_Sample(void)
+{
+    
 }
 
 void Convert_To_Bytes(uint32_t value) // uint32_t, big endian
