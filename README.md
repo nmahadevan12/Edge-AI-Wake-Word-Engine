@@ -207,5 +207,3 @@ More flash/debug notes (including F5 / F10 / F11) are in [`prodecure.txt`](prode
 | STM32L475xx datasheet | **DS11585** | Pin alternate functions: PA0 AF8 = UART4_TX; PE7 AF6 = DFSDM1_DATIN2; PE9 AF6 = DFSDM1_CKOUT | [STM32L475VG](https://www.st.com/en/microcontrollers-microprocessors/stm32l475vg.html) |
 | B-L475E-IOT01A user manual | **UM2153** | Arduino D1 = PA0; onboard MEMS mic; ST-Link VCP is USART1 on PB6/PB7 (not this UART) | [B-L475E-IOT01A](https://www.st.com/en/evaluation-tools/b-l475e-iot01a.html) |
 | Cortex-M4 programming manual | **PM0214** | SysTick (`STK_CTRL` / `LOAD` / `VAL`), vector table, exceptions | Search ST “PM0214” |
-| MP34DT01 MEMS mic datasheet | — | Onboard PDM microphone (clock + 1-bit data; DFSDM “SPI-type” timing) | [ST MEMS mics](https://www.st.com/en/mems-and-sensors/mp34dt01.html) |
-| OpenOCD flash commands | — | `program` / `verify` / `reset` | [Flash commands](https://openocd.org/doc/html/Flash-Commands.html) |
