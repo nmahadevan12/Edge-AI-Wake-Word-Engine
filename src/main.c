@@ -272,10 +272,6 @@ void SysTick_Handler(void)
     timer++; // increment timer
 }
 
-/*
-    PE9, MEMS microphone, DFSDM1_CKOUT
-*/
-
 volatile unsigned int delay;
 
 int main(void)
@@ -291,7 +287,7 @@ int main(void)
         Get_Mic_Sample();
         Convert_To_Bytes(timer); // transmit Timer on D1, PA0
 
-        for (delay = 0; delay < 100000; delay++);
+        for (delay = 0; delay < 50000; delay++);
     }
     return 0; // never reached
 }
