@@ -134,10 +134,9 @@ typedef struct
 #define FOSR            (63 << 16)
 #define SINC_3_FOSR     (SINC_3_FILTER | FOSR)
 #define RCONT           (1 << 18)
-#define CHEN_DFEN_RCONT (RCH | DFEN | RCONT)
+#define RCH_DFEN_RCONT  (RCH | DFEN | RCONT)
 #define RSWSTART        (1 << 17)
-#define ROVRF           (1 << 3)
-#define CLRROVRF        (1 << 3)
+#define REOCF           (1 << 1)
 
 uint32_t timer = 0; // defined globally since it's used for interrupts
 
@@ -162,6 +161,34 @@ void UART4_GPIO_Init(void)
     GPIOA->MODER &= PA0_MASK; // clears bits [1:0]
     GPIOA->MODER |= UART_OUTPUT; // alternate fucntion mode (UART)
     GPIOA->AFRL = AF8_UART4; // sets alternate function for PA0
+}
+
+void UART_Transmit(char buff)
+{
+    while (!(USART_ISR & UART_TXE)); // waits until data is transferred to shift register, waits until TXE bit = 1
+    USART_TDR = buff; // sets Transmit Data Register = buff
+}
+
+void UART_Transmit_Ptr(unsigned char *buff)
+{
+    uint8_t i;
+    for (i = 0; i < 4; i++) // runs four times
+    {
+        UART_Transmit(*buff);
+        buff++;
+    }
+}
+
+
+void Convert_To_Bytes(uint32_t value) // uint32_t, big endian
+{
+    unsigned char buffer[4]; // buffer = 4 bytes
+
+    buffer[0] = (unsigned char) ((value & 0xFF000000UL) >> 24); // LSR 3 bytes
+    buffer[1] = (unsigned char) ((value & 0x00FF0000UL) >> 16); // LSR 2 bytes
+    buffer[2] = (unsigned char) ((value & 0x0000FF00UL) >> 8);  // LSR 1 byte
+    buffer[3] = (unsigned char) (value  & 0x000000FFUL);
+    UART_Transmit_Ptr(buffer);
 }
 
 void Mic_Setup(void)
@@ -202,11 +229,11 @@ void DFSDM_Setup(void)
     FLT0FCR |= SINC_3_FOSR; // Sinc 3: usual default for PDM mics
 
     /*
-        CHEN: selected channel 2
+        RCH: selected channel 2
         DFEN: digital filter 0 enable
         RCONT: channel converted repeatedly after each conversion request
     */
-    FLT0CR1 |= CHEN_DFEN_RCONT;
+    FLT0CR1 |= RCH_DFEN_RCONT;
 
     /* Wait for digital filter to be enabled (DFEN), then set RSWSTART = 1 */
     FLT0CR1 |= RSWSTART; // makes a request to start conversion on the regular channel
@@ -214,13 +241,12 @@ void DFSDM_Setup(void)
 
 void Get_Mic_Sample(void)
 {
-    while (!(FLT0ISR & ROVRF)); // wait until a regular conversion has occured
+    while (!(FLT0ISR & REOCF)); // wait until a regular conversion is done
 
+    /* When data register FLT0RDATAR is read, REOCF bit is cleared automatically */
     uint32_t mic_data = FLT0RDATAR >> 8; // mic_data = bits[31:8] of FLT0RDATAR register
 
     Convert_To_Bytes(mic_data); // pass in 32-bit mic_data number in Convert_To_Bytes function
-
-    FLT0ICR |= CLRROVRF; // clears the ROVRF bit in FLT0ICR register
 }
 
 void SysTick_Init(void)
@@ -246,36 +272,11 @@ void SysTick_Handler(void)
     timer++; // increment timer
 }
 
-void Convert_To_Bytes(uint32_t value) // uint32_t, big endian
-{
-    unsigned char buffer[4]; // buffer = 4 bytes
-
-    buffer[0] = (unsigned char) ((value & 0xFF000000UL) >> 24); // LSR 3 bytes
-    buffer[1] = (unsigned char) ((value & 0x00FF0000UL) >> 16); // LSR 2 bytes
-    buffer[2] = (unsigned char) ((value & 0x0000FF00UL) >> 8);  // LSR 1 byte
-    buffer[3] = (unsigned char) (value  & 0x000000FFUL);
-    UART_Transmit_Ptr(buffer);
-}
-
-void UART_Transmit(char buff)
-{
-    while (!(USART_ISR & UART_TXE)); // waits until data is transferred to shift register, waits until TXE bit = 1
-    USART_TDR = buff; // sets Transmit Data Register = buff
-}
-
-void UART_Transmit_Ptr(char *buff)
-{
-    uint8_t i;
-    for (i = 0; i < 4; i++) // runs four times
-    {
-        UART_Transmit(*buff);
-        buff++;
-    }
-}
-
 /*
     PE9, MEMS microphone, DFSDM1_CKOUT
 */
+
+volatile unsigned int delay;
 
 int main(void)
 {
@@ -288,6 +289,9 @@ int main(void)
     while (1)
     {
         Get_Mic_Sample();
+        Convert_To_Bytes(timer); // transmit Timer on D1, PA0
+
+        for (delay = 0; delay < 100000; delay++);
     }
     return 0; // never reached
 }
