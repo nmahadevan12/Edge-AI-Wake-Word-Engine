@@ -10,6 +10,10 @@ typedef signed short        int16_t;
 typedef signed int          int32_t;
 typedef signed long long    int64_t;
 
+/* Floating-Point Types */
+typedef float               float32_t;
+typedef double              float64_t;
+
 /* Base Addresses */
 #define PERIPH_BASE     (0x40000000U)
 #define APB1PERIPH_BASE (PERIPH_BASE)
@@ -140,6 +144,15 @@ typedef struct
 
 uint32_t timer = 0; // defined globally since it's used for interrupts
 
+struct DC_Blocker
+{
+    float R;      // filter coefficient
+    float x_prev; // previous input
+    float y_prev; // previous output
+};
+
+struct DC_Blocker values = {0.995, 0, 0}; // initializing DC_Blocker
+
 void UART_Setup(void)
 {
     RCC_APB1ENR1 |= UART4_EN; // enable clock
@@ -179,7 +192,6 @@ void UART_Transmit_Ptr(unsigned char *buff)
     }
 }
 
-
 void Convert_Uint_To_Bytes(uint32_t value) // uint32_t, big endian
 {
     unsigned char buffer[4]; // buffer = 4 bytes
@@ -200,6 +212,14 @@ void Convert_Int_To_Bytes(int32_t value) // int32_t, big endian
     buffer[2] = (unsigned char) ((value & 0x0000FF00UL) >> 8);  // LSR 1 byte
     buffer[3] = (unsigned char) (value  & 0x000000FFUL);
     UART_Transmit_Ptr(buffer);
+}
+
+void DC_Blocker(struct DC_Blocker *select, int32_t x)
+{
+    int32_t y = x  - select->x_prev + (select->R)*(select->y_prev);
+    select->x_prev = x;
+    select->y_prev = y;
+    Convert_Int_To_Bytes(y); // pass in 32-bit mic_data number, shift by 8 bits
 }
 
 void Mic_Setup(void)
@@ -256,7 +276,7 @@ void Get_Mic_Sample(void)
 
     /* When data register FLT0RDATAR is read, REOCF bit is cleared automatically */
     int32_t mic_data = FLT0RDATAR; // mic_data = bits[31:8] of FLT0RDATAR register
-    Convert_Int_To_Bytes(mic_data >> 8); // pass in 32-bit mic_data number, shift by 8 bits
+    DC_Blocker(&values, mic_data >> 8);
 }
 
 void SysTick_Init(void)
