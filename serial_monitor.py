@@ -2,6 +2,7 @@
 """Hex serial monitor for STM32 binary UART frames.
 
 Also writes mic_capture.csv so serial_plot.py can graph history in parallel.
+Firmware sends signed int32 mic (big-endian) then unsigned uint32 timer.
 Only this process opens the serial port.
 """
 
@@ -18,21 +19,9 @@ except ImportError:
 DEFAULT_LOG = Path(__file__).resolve().parent / "mic_capture.csv"
 
 
-def pcm24_from_be4(b: bytes) -> int:
-    """24-bit signed PCM in a 4-byte BE field.
-
-    Firmware does `RDATAR >> 8` on uint32, so negatives look like 00 FF xx xx
-    instead of FF FF xx xx. Sign-extend from bit 23 so the CSV matches audio.
-    """
-    u = int.from_bytes(b, "big", signed=False) & 0xFFFFFF
-    if u & 0x800000:
-        return u - 0x1000000
-    return u
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Dump UART: signed mic sample BE + timer BE (8-byte frame)"
+        description="Dump UART: signed int32 mic BE + unsigned timer BE (8-byte frame)"
     )
     parser.add_argument(
         "port",
@@ -78,9 +67,9 @@ def main() -> None:
             b = ser.read(8)
             if len(b) != 8:
                 continue
-            sample = pcm24_from_be4(b[0:4])
+            sample = int.from_bytes(b[0:4], "big", signed=True)
             timer = int.from_bytes(b[4:8], "big", signed=False)
-            print(f"{b[0:4].hex(' ')}  {b[4:8].hex(' ')}")
+            print(f"{b[0:4].hex(' ')}  {b[4:8].hex(' ')}  sample={sample}  t={timer}")
             log.write(f"{timer},{sample}\n")
             log.flush()
     except KeyboardInterrupt:

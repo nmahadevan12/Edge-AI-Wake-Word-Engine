@@ -20,6 +20,15 @@ except ImportError:
 
 DEFAULT_LOG = Path(__file__).resolve().parent / "mic_capture.csv"
 FULL_SCALE = 262144  # Sinc3, FOSR 64
+U32 = 1 << 32
+
+
+def u32_to_i32(u: int) -> int:
+    """Interpret a uint32 bit pattern as signed int32."""
+    u &= 0xFFFFFFFF
+    if u >= 0x80000000:
+        return u - U32
+    return u
 
 
 def parse_line(line: str):
@@ -27,10 +36,16 @@ def parse_line(line: str):
     if not line or line.startswith("timer_ms"):
         return None
     try:
-        t_s, s_s = line.split(",", 1)
-        return int(t_s), int(s_s)
+        a_s, b_s = line.split(",", 1)
+        a, b = int(a_s), int(b_s)
     except ValueError:
         return None
+
+    # Normal: timer_ms, signed_sample
+    # Older/swapped logs: uint32(sample) ≈ 2^32, timer in the second column
+    if a > 0x40000000 and 0 <= b < 10_000_000:
+        return b, u32_to_i32(a)
+    return a, b
 
 
 def load_all(path: Path, times: deque, samples: deque) -> int:
@@ -92,7 +107,7 @@ def main() -> None:
     ax.axhline(0, color="0.6", lw=0.6)
     ax.set_title("DFSDM mic sample vs firmware timer")
     ax.set_xlabel("timer (ms)")
-    ax.set_ylabel("signed 24-bit PCM")
+    ax.set_ylabel("signed int32 PCM")
     ax.set_ylim(-8000, 8000)
     fig.text(
         0.01,

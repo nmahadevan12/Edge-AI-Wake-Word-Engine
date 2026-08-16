@@ -180,7 +180,18 @@ void UART_Transmit_Ptr(unsigned char *buff)
 }
 
 
-void Convert_To_Bytes(uint32_t value) // uint32_t, big endian
+void Convert_Uint_To_Bytes(uint32_t value) // uint32_t, big endian
+{
+    unsigned char buffer[4]; // buffer = 4 bytes
+
+    buffer[0] = (unsigned char) ((value & 0xFF000000UL) >> 24); // LSR 3 bytes
+    buffer[1] = (unsigned char) ((value & 0x00FF0000UL) >> 16); // LSR 2 bytes
+    buffer[2] = (unsigned char) ((value & 0x0000FF00UL) >> 8);  // LSR 1 byte
+    buffer[3] = (unsigned char) (value  & 0x000000FFUL);
+    UART_Transmit_Ptr(buffer);
+}
+
+void Convert_Int_To_Bytes(int32_t value) // int32_t, big endian
 {
     unsigned char buffer[4]; // buffer = 4 bytes
 
@@ -244,9 +255,8 @@ void Get_Mic_Sample(void)
     while (!(FLT0ISR & REOCF)); // wait until a regular conversion is done
 
     /* When data register FLT0RDATAR is read, REOCF bit is cleared automatically */
-    uint32_t mic_data = FLT0RDATAR >> 8; // mic_data = bits[31:8] of FLT0RDATAR register
-
-    Convert_To_Bytes(mic_data); // pass in 32-bit mic_data number in Convert_To_Bytes function
+    int32_t mic_data = FLT0RDATAR; // mic_data = bits[31:8] of FLT0RDATAR register
+    Convert_Int_To_Bytes(mic_data >> 8); // pass in 32-bit mic_data number, shift by 8 bits
 }
 
 void SysTick_Init(void)
@@ -285,7 +295,7 @@ int main(void)
     while (1)
     {
         Get_Mic_Sample();
-        Convert_To_Bytes(timer); // transmit Timer on D1, PA0
+        Convert_Uint_To_Bytes(timer); // transmit Timer on D1, PA0
 
         for (delay = 0; delay < 50000; delay++);
     }
