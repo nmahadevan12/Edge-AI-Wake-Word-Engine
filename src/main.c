@@ -150,8 +150,16 @@ struct DC_Blocker
     float x_prev; // previous input
     float y_prev; // previous output
 };
+struct DC_Blocker dc = {0.995, 0, 0}; // initializing DC_Blocker
 
-struct DC_Blocker values = {0.995, 0, 0}; // initializing DC_Blocker
+struct Update_Energy
+{
+    uint32_t acc;
+    uint32_t count;
+    uint32_t N;
+    uint32_t energy;
+};
+struct Update_Energy energy = {0, 0, 8, 0};
 
 void UART_Setup(void)
 {
@@ -219,7 +227,8 @@ void DC_Blocker(struct DC_Blocker *select, int32_t x)
     int32_t y = x  - select->x_prev + (select->R)*(select->y_prev);
     select->x_prev = x;
     select->y_prev = y;
-    Convert_Int_To_Bytes(y); // pass in 32-bit mic_data number, shift by 8 bits
+    Convert_Int_To_Bytes(y >> 8); // pass in 32-bit mic_data number, shift by 8 bits
+    Update_Energy(y);
 }
 
 void Mic_Setup(void)
@@ -276,7 +285,33 @@ void Get_Mic_Sample(void)
 
     /* When data register FLT0RDATAR is read, REOCF bit is cleared automatically */
     int32_t mic_data = FLT0RDATAR; // mic_data = bits[31:8] of FLT0RDATAR register
-    DC_Blocker(&values, mic_data >> 8);
+    DC_Blocker(&dc, mic_data >> 8);
+}
+
+uint32_t Update_Energy(struct Update_Energy *select, int32_t y)
+{
+    uint32_t abs_y;
+    if (y < 0) 
+    {
+        abs_y = y + 2147483648;
+    }
+    else 
+    {
+        abs_y = y;
+    }
+
+    select->acc += abs_y ;
+    select->count++;
+
+    if (select->count == select->N)
+    {
+        select->energy = select-> acc;
+        select->acc = 0;
+        select->count = 0;
+    }
+
+    uint32_t new_energy = select->energy;
+    Convert_Uint_To_Bytes(new_energy);
 }
 
 void SysTick_Init(void)
@@ -302,8 +337,6 @@ void SysTick_Handler(void)
     timer++; // increment timer
 }
 
-volatile unsigned int delay;
-
 int main(void)
 {
     UART4_GPIO_Init(); // initialize UART4 pin
@@ -312,12 +345,14 @@ int main(void)
     Mic_Setup(); // setup mic
     DFSDM_Setup(); // digital filter setup
 
+    volatile uint16_t delay;
+
     while (1)
     {
         Get_Mic_Sample();
         Convert_Uint_To_Bytes(timer); // transmit Timer on D1, PA0
-
-        for (delay = 0; delay < 50000; delay++);
+        Update_Energy(&energy, y);
+        for (delay = 0; delay < 10000; delay++);
     }
     return 0; // never reached
 }
