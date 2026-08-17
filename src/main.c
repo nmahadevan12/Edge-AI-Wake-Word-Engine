@@ -225,7 +225,7 @@ void Convert_Int_To_Bytes(int32_t value) // int32_t, big endian
 void Update_Energy(struct Update_Energy *select, int32_t y)
 {
     uint32_t abs_y;
-    if (y < 0) abs_y = -y;
+    if (y < 0) abs_y = -y; // take magnitude (not direction) of y
     else abs_y = y;
 
     select->acc += abs_y ;
