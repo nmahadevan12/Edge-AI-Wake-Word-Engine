@@ -220,26 +220,37 @@ void Convert_Int_To_Bytes(int32_t value) // int32_t, big endian
     UART_Transmit_Ptr(buffer);
 }
 
+void Sound_Detect(uint32_t energy)
+{
+    uint8_t debounce = 0;
+    if (energy > 500) debounce++;
+    else debounce = 0;
+
+    if (debounce >= 1) Convert_Uint_To_Bytes(1); // sends 1 if energy was detected
+    else Convert_Uint_To_Bytes(0); // sends 0 if no energy was detected
+}
+
 void Update_Energy(struct Update_Energy *select, int32_t y)
 {
-    uint32_t abs_y;
+    uint32_t abs_y; // absolute y
     if (y < 0) abs_y = -y; // take magnitude (not direction) of y
     else abs_y = y;
 
-    uint32_t val_1 = select->alpha * abs_y;
-    uint32_t val_2 = (1 - select->alpha) * select->energy;
-    select->energy = val_1 + val_2;
+    uint32_t val_1 = select->alpha * abs_y; // val_1 = a*abs_y
+    uint32_t val_2 = (1 - select->alpha) * select->energy; // val_2 = (1-a)*energy
+    select->energy = val_1 + val_2; // energy = val_1 + val_2
 
-    Convert_Uint_To_Bytes(select->energy);
+    Convert_Uint_To_Bytes(select->energy); // 2nd field: energy
+    Sound_Detect(select->energy);          // 3rd field: flag (0 or 1)
 }
 
 void DC_Blocker(struct DC_Blocker *select, int32_t x)
 {
-    int32_t y = x  - select->x_prev + (select->R)*(select->y_prev);
-    select->x_prev = x;
-    select->y_prev = y;
+    int32_t y = x  - select->x_prev + (select->R)*(select->y_prev); // y = x - x_prev + R*y_prev
+    select->x_prev = x; // x_prev = x
+    select->y_prev = y; // y_prev = y
     Convert_Int_To_Bytes(y); // pass in 32-bit mic_data number
-    Update_Energy(&energy, y);
+    Update_Energy(&energy, y); // call update energy function; pass in energy struct and y
 }
 
 void Mic_Setup(void)
