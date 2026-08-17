@@ -154,12 +154,10 @@ struct DC_Blocker dc = {0.995, 0, 0}; // initializing DC_Blocker
 
 struct Update_Energy
 {
-    uint32_t acc;
-    uint32_t count;
-    uint32_t N;
     uint32_t energy;
+    float alpha;
 };
-struct Update_Energy energy = {0, 0, 8, 0};
+struct Update_Energy energy = {0, 0.2};
 
 void UART_Setup(void)
 {
@@ -228,18 +226,11 @@ void Update_Energy(struct Update_Energy *select, int32_t y)
     if (y < 0) abs_y = -y; // take magnitude (not direction) of y
     else abs_y = y;
 
-    select->acc += abs_y ;
-    select->count++;
+    uint32_t val_1 = select->alpha * abs_y;
+    uint32_t val_2 = (1 - select->alpha) * select->energy;
+    select->energy = val_1 + val_2;
 
-    if (select->count == select->N)
-    {
-        select->energy = select-> acc;
-        select->acc = 0;
-        select->count = 0;
-    }
-
-    uint32_t new_energy = select->energy;
-    Convert_Uint_To_Bytes(new_energy);
+    Convert_Uint_To_Bytes(select->energy);
 }
 
 void DC_Blocker(struct DC_Blocker *select, int32_t x)
