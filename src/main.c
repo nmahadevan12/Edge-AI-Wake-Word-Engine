@@ -222,13 +222,33 @@ void Convert_Int_To_Bytes(int32_t value) // int32_t, big endian
     UART_Transmit_Ptr(buffer);
 }
 
+void Update_Energy(struct Update_Energy *select, int32_t y)
+{
+    uint32_t abs_y;
+    if (y < 0) abs_y = -y;
+    else abs_y = y;
+
+    select->acc += abs_y ;
+    select->count++;
+
+    if (select->count == select->N)
+    {
+        select->energy = select-> acc;
+        select->acc = 0;
+        select->count = 0;
+    }
+
+    uint32_t new_energy = select->energy;
+    Convert_Uint_To_Bytes(new_energy);
+}
+
 void DC_Blocker(struct DC_Blocker *select, int32_t x)
 {
     int32_t y = x  - select->x_prev + (select->R)*(select->y_prev);
     select->x_prev = x;
     select->y_prev = y;
-    Convert_Int_To_Bytes(y >> 8); // pass in 32-bit mic_data number, shift by 8 bits
-    Update_Energy(y);
+    Convert_Int_To_Bytes(y); // pass in 32-bit mic_data number
+    Update_Energy(&energy, y);
 }
 
 void Mic_Setup(void)
@@ -285,33 +305,7 @@ void Get_Mic_Sample(void)
 
     /* When data register FLT0RDATAR is read, REOCF bit is cleared automatically */
     int32_t mic_data = FLT0RDATAR; // mic_data = bits[31:8] of FLT0RDATAR register
-    DC_Blocker(&dc, mic_data >> 8);
-}
-
-uint32_t Update_Energy(struct Update_Energy *select, int32_t y)
-{
-    uint32_t abs_y;
-    if (y < 0) 
-    {
-        abs_y = y + 2147483648;
-    }
-    else 
-    {
-        abs_y = y;
-    }
-
-    select->acc += abs_y ;
-    select->count++;
-
-    if (select->count == select->N)
-    {
-        select->energy = select-> acc;
-        select->acc = 0;
-        select->count = 0;
-    }
-
-    uint32_t new_energy = select->energy;
-    Convert_Uint_To_Bytes(new_energy);
+    DC_Blocker(&dc, mic_data >> 8); // shift by 1 byte
 }
 
 void SysTick_Init(void)
@@ -351,7 +345,6 @@ int main(void)
     {
         Get_Mic_Sample();
         Convert_Uint_To_Bytes(timer); // transmit Timer on D1, PA0
-        Update_Energy(&energy, y);
         for (delay = 0; delay < 10000; delay++);
     }
     return 0; // never reached

@@ -2,7 +2,10 @@
 """Hex serial monitor for STM32 binary UART frames.
 
 Also writes mic_capture.csv so serial_plot.py can graph history in parallel.
-Firmware sends signed int32 mic (big-endian) then unsigned uint32 timer.
+Firmware frame (12 bytes, big-endian):
+  [0:4]  signed int32   mic sample (DC-blocked)
+  [4:8]  unsigned uint32 energy (last finished window)
+  [8:12] unsigned uint32 timer_ms
 Only this process opens the serial port.
 """
 
@@ -17,11 +20,12 @@ except ImportError:
     sys.exit(1)
 
 DEFAULT_LOG = Path(__file__).resolve().parent / "mic_capture.csv"
+FRAME_LEN = 12
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Dump UART: signed int32 mic BE + unsigned timer BE (8-byte frame)"
+        description="Dump UART: signed sample + uint32 energy + uint32 timer (12-byte frame)"
     )
     parser.add_argument(
         "port",
@@ -40,7 +44,7 @@ def main() -> None:
     parser.add_argument(
         "--log",
         default=str(DEFAULT_LOG),
-        help="CSV log for serial_plot.py (timer_ms,sample)",
+        help="CSV log for serial_plot.py (timer_ms,sample,energy)",
     )
     parser.add_argument(
         "--append",
@@ -55,22 +59,26 @@ def main() -> None:
     mode = "a" if args.append else "w"
     log = log_path.open(mode, encoding="utf-8")
     if mode == "w":
-        log.write("timer_ms,sample\n")
+        log.write("timer_ms,sample,energy\n")
         log.flush()
 
     print(f"Opened {args.port} @ {args.baud} stopbits={args.stopbits}")
-    print(f"Logging {log_path}")
+    print(f"Logging {log_path} (12-byte frames: sample, energy, timer)")
     print("Ctrl+C to stop\n")
 
     try:
         while True:
-            b = ser.read(8)
-            if len(b) != 8:
+            b = ser.read(FRAME_LEN)
+            if len(b) != FRAME_LEN:
                 continue
             sample = int.from_bytes(b[0:4], "big", signed=True)
-            timer = int.from_bytes(b[4:8], "big", signed=False)
-            print(f"{b[0:4].hex(' ')}  {b[4:8].hex(' ')}  sample={sample}  t={timer}")
-            log.write(f"{timer},{sample}\n")
+            energy = int.from_bytes(b[4:8], "big", signed=False)
+            timer = int.from_bytes(b[8:12], "big", signed=False)
+            print(
+                f"{b[0:4].hex(' ')}  {b[4:8].hex(' ')}  {b[8:12].hex(' ')}  "
+                f"sample={sample}  energy={energy}  t={timer}"
+            )
+            log.write(f"{timer},{sample},{energy}\n")
             log.flush()
     except KeyboardInterrupt:
         print("\nClosed")
