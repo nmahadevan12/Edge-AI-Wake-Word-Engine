@@ -226,7 +226,7 @@ void Sound_Detect(uint32_t energy)
     if (energy > 500) debounce++;
     else debounce = 0;
 
-    if (debounce >= 31) Convert_Uint_To_Bytes(1); // sends 1 if energy was detected
+    if (debounce >= 20) Convert_Uint_To_Bytes(1); // sends 1 if energy was detected
     else Convert_Uint_To_Bytes(0); // sends 0 if no energy was detected
 }
 
