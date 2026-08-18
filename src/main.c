@@ -222,11 +222,11 @@ void Convert_Int_To_Bytes(int32_t value) // int32_t, big endian
 
 void Sound_Detect(uint32_t energy)
 {
-    uint8_t debounce = 0;
+    static uint8_t debounce = 0;
     if (energy > 500) debounce++;
     else debounce = 0;
 
-    if (debounce >= 2) Convert_Uint_To_Bytes(1); // sends 1 if energy was detected
+    if (debounce >= 31) Convert_Uint_To_Bytes(1); // sends 1 if energy was detected
     else Convert_Uint_To_Bytes(0); // sends 0 if no energy was detected
 }
 
