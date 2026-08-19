@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Waveform viewer for mic_capture.csv from serial_monitor.py.
+"""Waveform viewer for mic_capture.csv + buffer_dump_NNN.csv from serial_monitor.py.
 
 CSV: timer_ms,sample,energy,flag
 16-byte UART frame: sample, energy, flag, timer
+Buffer dump CSV: index,y  (256 signed int32 samples per event)
 """
 
 import argparse
@@ -19,8 +20,35 @@ except ImportError:
     sys.exit(1)
 
 DEFAULT_LOG = Path(__file__).resolve().parent / "mic_capture.csv"
+DEFAULT_DUMP_DIR = Path(__file__).resolve().parent
 FULL_SCALE = 262144  # Sinc3, FOSR 64
 QUIET_MAX_START_MS = 1000  # ignore warm-up before tracking quiet max
+
+
+def load_dump(path: Path):
+    """Load a buffer_dump_NNN.csv → list of y values."""
+    ys = []
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("index"):
+                    continue
+                parts = line.split(",")
+                if len(parts) >= 2:
+                    try:
+                        ys.append(int(parts[1]))
+                    except ValueError:
+                        pass
+    except OSError:
+        pass
+    return ys
+
+
+def latest_dump(dump_dir: Path):
+    """Return the most recently modified buffer_dump_*.csv, or None."""
+    dumps = sorted(dump_dir.glob("buffer_dump_*.csv"), key=lambda p: p.stat().st_mtime)
+    return dumps[-1] if dumps else None
 
 
 def parse_line(line: str):
@@ -79,9 +107,11 @@ def main() -> None:
         description="Overlay DFSDM sample, energy, and detect flag vs timer"
     )
     parser.add_argument("--log", default=str(DEFAULT_LOG))
+    parser.add_argument("--dump-dir", default=str(DEFAULT_DUMP_DIR))
     parser.add_argument("--history", type=int, default=20000)
     parser.add_argument("--window", type=int, default=400)
     args = parser.parse_args()
+    dump_dir = Path(args.dump_dir)
 
     log_path = Path(args.log)
     times = deque(maxlen=args.history)
@@ -111,12 +141,19 @@ def main() -> None:
     reload_log()
     print(f"Loaded {len(samples)} samples. Close the window to quit.")
 
-    plt.rcParams["toolbar"] = "toolbar2"
-    fig, ax = plt.subplots(figsize=(12, 5))
-    plt.subplots_adjust(bottom=0.22, right=0.78)
+    last_dump_path = [None]
 
-    ax_e = ax.twinx()
-    ax_f = ax.twinx()
+    plt.rcParams["toolbar"] = "toolbar2"
+    fig = plt.figure(figsize=(14, 8))
+    ax_live  = fig.add_subplot(2, 1, 1)  # top: live stream
+    ax_dump  = fig.add_subplot(2, 1, 2)  # bottom: latest buffer dump
+    plt.subplots_adjust(bottom=0.15, right=0.78, hspace=0.45)
+
+    # aliases for the live plot axes
+    ax = ax_live
+
+    ax_e = ax_live.twinx()
+    ax_f = ax_live.twinx()
     ax_f.spines["right"].set_position(("outward", 55))
 
     ax.set_zorder(1)
@@ -179,6 +216,19 @@ def main() -> None:
         bbox={"boxstyle": "round,pad=0.3", "facecolor": "white", "alpha": 0.85},
     )
 
+    # --- dump subplot ---
+    ax_dump.set_title("Latest buffer dump (sample_buffer[256])", fontsize=9)
+    ax_dump.set_xlabel("sample index")
+    ax_dump.set_ylabel("y (signed int32)", color="C0")
+    ax_dump.axhline(0, color="0.6", lw=0.6)
+    ax_dump.tick_params(axis="y", labelcolor="C0")
+    (line_dump,) = ax_dump.plot([], [], lw=0.9, marker=".", ms=2, color="C0")
+    dump_label = ax_dump.text(
+        0.99, 0.97, "No dump yet",
+        transform=ax_dump.transAxes,
+        fontsize=8, color="0.5", ha="right", va="top",
+    )
+
     fig.text(
         0.01,
         0.01,
@@ -187,10 +237,10 @@ def main() -> None:
         color="0.4",
     )
 
-    ax_slider = plt.axes([0.12, 0.10, 0.62, 0.04])
+    ax_slider = plt.axes([0.12, 0.06, 0.62, 0.03])
     slider = Slider(ax_slider, "View", 0, 1, valinit=1, valstep=1)
-    ax_follow = plt.axes([0.78, 0.09, 0.09, 0.05])
-    ax_pause = plt.axes([0.88, 0.09, 0.09, 0.05])
+    ax_follow = plt.axes([0.78, 0.05, 0.09, 0.04])
+    ax_pause  = plt.axes([0.88, 0.05, 0.09, 0.04])
     btn_follow = Button(ax_follow, "Follow")
     btn_pause = Button(ax_pause, "Pause")
 
@@ -272,6 +322,25 @@ def main() -> None:
     btn_follow.on_clicked(on_follow)
     btn_pause.on_clicked(on_pause)
 
+    def refresh_dump():
+        """Check for a new buffer dump and update the bottom subplot."""
+        dp = latest_dump(dump_dir)
+        if dp is None or dp == last_dump_path[0]:
+            return
+        last_dump_path[0] = dp
+        ys = load_dump(dp)
+        if not ys:
+            return
+        xs = list(range(len(ys)))
+        line_dump.set_data(xs, ys)
+        peak = max(abs(min(ys)), abs(max(ys)), 1)
+        ax_dump.set_xlim(0, len(ys) - 1)
+        ax_dump.set_ylim(-peak * 1.3, peak * 1.3)
+        dump_label.set_text(
+            f"{dp.name}  ·  {len(ys)} samples  ·  peak={peak}  min={min(ys)}  max={max(ys)}"
+        )
+        dump_label.set_color("C0")
+
     def on_timer():
         nonlocal offset, log_inode
         try:
@@ -304,6 +373,7 @@ def main() -> None:
         max_start = max(1, n - w)
         slider.valmax = max_start
         slider.ax.set_xlim(0, max_start)
+        refresh_dump()
         redraw()
 
     timer = fig.canvas.new_timer(interval=50)

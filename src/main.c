@@ -226,12 +226,21 @@ void Convert_Int_To_Bytes(int32_t value) // int32_t, big endian
     UART_Transmit_Ptr(buffer);
 }
 
-///////////////////////////////////////////
-///// WORK ON SENDING 1024 BYTE ARRAY /////
-///////////////////////////////////////////
-void Send_Sample_Buffer()
+void Send_Sample_Buffer(void)
 {
-    sample_buffer;
+    uint32_t marker_byte_start = 0xFFFFFFFF;
+    uint32_t marker_byte_end = 0;
+    uint16_t index_counter;
+
+    Convert_Uint_To_Bytes(marker_byte_start);
+
+    for (index_counter = 0; index_counter < 256; index_counter++)
+    {
+        Convert_Int_To_Bytes(sample_buffer[index_counter]);
+    }
+    index_counter = 0;
+
+    Convert_Uint_To_Bytes(marker_byte_end);
 }
 
 void Sample_Buffer(int32_t y)
