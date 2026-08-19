@@ -142,6 +142,9 @@ typedef struct
 #define RSWSTART        (1 << 17)
 #define REOCF           (1 << 1)
 
+/* Sample Buffer */
+#define CAPACITY        (256)
+
 uint32_t timer = 0; // defined globally since it's used for interrupts
 
 struct DC_Blocker
@@ -220,13 +223,32 @@ void Convert_Int_To_Bytes(int32_t value) // int32_t, big endian
     UART_Transmit_Ptr(buffer);
 }
 
+void Sample_Buffer(int32_t y, uint8_t flag)
+{
+    int32_t sample_buffer[CAPACITY]; // 1024 bytes total (y = 4 bytes)
+    uint8_t index = 0; // initialize index
+
+    sample_buffer[index] |= y; // put y (signed 32-bit val in array)
+    index++; // increment index
+    index % CAPACITY; // ensure index doesn't exceed 256
+
+    if (flag == 1)
+    {
+       // need to think on what to do next 
+    }
+}
+
 void Sound_Detect(uint32_t energy)
 {
     static uint8_t debounce = 0;
     if (energy > 500) debounce++;
     else debounce = 0;
 
-    if (debounce >= 20) Convert_Uint_To_Bytes(1); // sends 1 if energy was detected
+    if (debounce >= 20) 
+    {
+        Convert_Uint_To_Bytes(1); // sends 1 if energy was detected
+        Sample_Buffer(1); // send 1 if debounce >= 20
+    }
     else Convert_Uint_To_Bytes(0); // sends 0 if no energy was detected
 }
 
@@ -251,6 +273,7 @@ void DC_Blocker(struct DC_Blocker *select, int32_t x)
     select->y_prev = y; // y_prev = y
     Convert_Int_To_Bytes(y); // pass in 32-bit mic_data number
     Update_Energy(&energy, y); // call update energy function; pass in energy struct and y
+    Sample_Buffer(y);
 }
 
 void Mic_Setup(void)
