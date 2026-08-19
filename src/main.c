@@ -226,24 +226,50 @@ void Convert_Int_To_Bytes(int32_t value) // int32_t, big endian
     UART_Transmit_Ptr(buffer);
 }
 
+///////////////////////////////////////////
+///// WORK ON SENDING 1024 BYTE ARRAY /////
+///////////////////////////////////////////
+void Send_Sample_Buffer()
+{
+    sample_buffer;
+}
+
+void Sample_Buffer(int32_t y)
+{
+    if (flag) // if energy above 500
+    {
+        sample_buffer[index] = y; // put y (signed 32-bit val in array)
+
+        if (index == 255) // execute when sample_buffer is full
+        {
+            Send_Sample_Buffer();
+        }
+
+        index++; // increment index
+    }
+}
+
 void Sound_Detect(uint32_t energy)
 {
     static uint8_t debounce = 0;
+    static uint16_t low_counter = 0;
     flag = 0;
 
-    if (energy > 500) 
+    if (energy > 500) // if energy above 500
     {
-        debounce++;
-        flag = 1;
+        debounce++; // increment debounce
+        low_counter = 0;
+        flag = 1; // set flag = 1
     }
+    else low_counter++;
 
     if (debounce >= 20) Convert_Uint_To_Bytes(1); // sends 1 if energy was detected
     else Convert_Uint_To_Bytes(0); // sends 0 if no energy was detected
 
-    if ((energy < 500) && (debounce <= 20))
+    if (low_counter > 5000)
     {
-        index = 0;
-        debounce = 0;
+        index = 0; // set index = 0
+        debounce = 0; // set debounce = 0
     }
 }
 
@@ -259,22 +285,6 @@ void Update_Energy(struct Update_Energy *select, int32_t y)
 
     Convert_Uint_To_Bytes(select->energy); // 2nd field: energy
     Sound_Detect(select->energy);          // 3rd field: flag (0 or 1)
-}
-
-void Sample_Buffer(int32_t y)
-{
-    if (flag)
-    {
-        sample_buffer[index] = y; // put y (signed 32-bit val in array)
-
-        if (index == 255)
-        {
-            // then do something and send data
-            index %= CAPACITY;
-        }
-
-        index++; // increment index
-    }
 }
 
 void DC_Blocker(struct DC_Blocker *select, int32_t x)
