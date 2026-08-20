@@ -151,6 +151,7 @@ int32_t sample_buffer[CAPACITY]; // 1024 bytes total (y = 4 bytes)
 static uint16_t index = 0;
 static uint16_t loud_count = 0;
 static uint8_t capturing = 0;
+static uint8_t low_count = 0;
 
 struct DC_Blocker
 {
@@ -230,27 +231,25 @@ void Convert_Int_To_Bytes(int32_t value) // int32_t, big endian
 
 void Send_Sample_Buffer(void)
 {
-    uint32_t marker_byte_start = 0xFFFFFFFF;
-    uint32_t marker_byte_end = 0;
+    uint32_t marker_byte_start = 0xFFFFFFFF; // start indicator
+    uint32_t marker_byte_end = 0; // end indicator
     uint16_t index_counter;
 
-    Convert_Uint_To_Bytes(marker_byte_start);
+    Convert_Uint_To_Bytes(marker_byte_start); // send start indicator
 
     for (index_counter = 0; index_counter < CAPACITY; index_counter++)
     {
-        Convert_Int_To_Bytes(sample_buffer[index_counter]);
+        Convert_Int_To_Bytes(sample_buffer[index_counter]); // send 4 byte data (related to index_counter)
     }
 
-    Convert_Uint_To_Bytes(marker_byte_end);
+    Convert_Uint_To_Bytes(marker_byte_end); // send end indicator
 }
 
-// Capture exactly CAPACITY PCM samples after the first time energy > 500.
-// After CAPACITY samples, keep/send only if loud_count >= DEBOUNCE_VAL.
+// Capture exactly CAPACITY PCM samples after the first time energy > 500
+// After CAPACITY samples, keep/send only if loud_count >= DEBOUNCE_VAL
 void Sound_Detect(uint32_t energy, int32_t y)
 {
-    // Always emit the 3rd UART field (0/1) to keep host framing aligned.
-    // During warm-up, force flag=0 and disable capture.
-    if (timer < 7000)
+    if (timer < 7000) // disable capture for first 7000ms
     {
         capturing = 0;
         index = 0;
@@ -259,38 +258,53 @@ void Sound_Detect(uint32_t energy, int32_t y)
         return;
     }
 
-    // Start capturing at first loud sample.
-    if (!capturing)
+    if (!capturing) // captures after first loud sample (> 500)
     {
         if (energy > 500)
         {
+            // initialize variables/flags
             capturing = 1;
             index = 0;
             loud_count = 0;
         }
         else
         {
-            Convert_Uint_To_Bytes(0);
+            Convert_Uint_To_Bytes(0); // sends 4 byte number for formatting constraints
             return;
         }
     }
 
-    // While capturing: store PCM y for all CAPACITY samples.
-    sample_buffer[index] = y;
-    if (energy > 500)
-        loud_count++;
+    sample_buffer[index] = y; // store PCM y for all CAPACITY samples
+
+    if (energy > 500) 
+    {
+        loud_count++; // if energy > 500, increment loud_count AND index
+        low_count = 0; // reset low_count
+    }
+    else low_count++; // if energy <= 500, increment low_count
 
     index++;
 
-    // Decide when the fixed window is complete.
-    if (index >= CAPACITY)
+    if (low_count > 250) // if low_count > 250, restart sampling
     {
-        if (loud_count >= DEBOUNCE_VAL)
-            Send_Sample_Buffer();
+        // re-initialize variables/flags
+        index = 0;
+        capturing = 0;
+        loud_count = 0;
+    }
 
+    if ((index + 1) == CAPACITY) // if index reaches 256, index max = 255
+    {
+        if (loud_count >= DEBOUNCE_VAL) // tracks the amount of val > 500
+        {
+            Send_Sample_Buffer(); // send sample_buffer
+        }
+
+        // reset variables/flags
         capturing = 0;
         index = 0;
         loud_count = 0;
+        low_count = 0;
     }
 
     Convert_Uint_To_Bytes((loud_count >= DEBOUNCE_VAL) ? 1 : 0);
