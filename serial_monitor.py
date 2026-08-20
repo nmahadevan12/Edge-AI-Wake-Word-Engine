@@ -4,7 +4,7 @@
 Normal frame (16 bytes, big-endian):
   [0:4]    signed int32   mic sample (DC-blocked)
   [4:8]    unsigned uint32 energy
-  [8:12]   unsigned uint32 flag (0 or 1)
+  [8:12]   unsigned uint32 debounce_passed (0 or 1)  — NOT energy>500
   [12:16]  unsigned uint32 timer_ms
 
 Buffer dump (triggered when sample_buffer[255] is written):
@@ -17,7 +17,7 @@ Buffer dump (triggered when sample_buffer[255] is written):
 import argparse
 import sys
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 try:
     import serial
@@ -30,17 +30,17 @@ DEFAULT_DUMP = Path(__file__).resolve().parent / "buffer_dump.csv"
 FRAME_LEN = 16
 MAX_TIMER_STEP_MS = 500
 
-DUMP_START_MARKER = 0xFFFFFFFF
-DUMP_END_MARKER   = 0x00000000
-DUMP_SAMPLES      = 256
-DUMP_TOTAL_BYTES  = 4 + DUMP_SAMPLES * 4 + 4  # 1032
+DUMP_END_MARKER = 0x00000000
+DUMP_SAMPLES = 256
+DUMP_TOTAL_BYTES = 4 + DUMP_SAMPLES * 4 + 4  # 1032
+DUMP_PAYLOAD_BYTES = DUMP_SAMPLES * 4 + 4
 
 
 def parse_frame(b: bytes):
-    sample = int.from_bytes(b[0:4],  "big", signed=True)
-    energy = int.from_bytes(b[4:8],  "big", signed=False)
-    flag   = int.from_bytes(b[8:12], "big", signed=False)
-    timer  = int.from_bytes(b[12:16],"big", signed=False)
+    sample = int.from_bytes(b[0:4], "big", signed=True)
+    energy = int.from_bytes(b[4:8], "big", signed=False)
+    flag = int.from_bytes(b[8:12], "big", signed=False)
+    timer = int.from_bytes(b[12:16], "big", signed=False)
     return sample, energy, flag, timer
 
 
@@ -57,11 +57,27 @@ def frame_ok(b: bytes, prev_timer: Optional[int]) -> bool:
     return dt <= MAX_TIMER_STEP_MS
 
 
+def _parse_dump_payload(payload: bytes) -> Optional[list]:
+    if len(payload) != DUMP_PAYLOAD_BYTES:
+        return None
+    end_word = int.from_bytes(payload[DUMP_SAMPLES * 4 :], "big", signed=False)
+    if end_word != DUMP_END_MARKER:
+        return None
+    samples = []
+    for i in range(DUMP_SAMPLES):
+        val = int.from_bytes(payload[i * 4 : (i + 1) * 4], "big", signed=True)
+        samples.append(val)
+    return samples
+
+
 def read_aligned_frame(
     ser, prev_timer: Optional[int]
-) -> Tuple[bytes, Optional[int]]:
-    """Read bytes one at a time until a valid 16-byte frame is found.
-    If a dump start marker is detected, hand off to read_dump."""
+) -> Tuple[Optional[bytes], Optional[List[int]], Optional[int]]:
+    """Read until a valid frame or a validated buffer dump.
+
+    sample == -1 is 0xFFFFFFFF — treat as a normal frame unless a full 1032-byte
+    dump with a valid end marker is present.
+    """
     buf = bytearray()
     while True:
         chunk = ser.read(1)
@@ -69,39 +85,29 @@ def read_aligned_frame(
             continue
         buf.extend(chunk)
 
-        # Check if first 4 bytes look like the dump start marker
-        if len(buf) >= 4:
-            word = int.from_bytes(buf[:4], "big", signed=False)
-            if word == DUMP_START_MARKER:
-                return None, prev_timer  # signal caller to read dump
+        if len(buf) >= 4 and buf[:4] == b"\xff\xff\xff\xff":
+            if len(buf) >= FRAME_LEN and frame_ok(bytes(buf[:FRAME_LEN]), prev_timer):
+                candidate = bytes(buf[:FRAME_LEN])
+                del buf[:FRAME_LEN]
+                timer = int.from_bytes(candidate[12:16], "big", signed=False)
+                return candidate, None, timer
+            if len(buf) >= DUMP_TOTAL_BYTES:
+                samples = _parse_dump_payload(bytes(buf[4:DUMP_TOTAL_BYTES]))
+                if samples is not None:
+                    del buf[:DUMP_TOTAL_BYTES]
+                    return None, samples, None
+                del buf[0]
+                continue
+            # Dump may be in progress — keep buffering, don't frame-sync yet.
+            continue
 
         while len(buf) >= FRAME_LEN:
             candidate = bytes(buf[:FRAME_LEN])
             if frame_ok(candidate, prev_timer):
                 del buf[:FRAME_LEN]
-                return candidate, int.from_bytes(candidate[12:16], "big", signed=False)
+                timer = int.from_bytes(candidate[12:16], "big", signed=False)
+                return candidate, None, timer
             del buf[0]
-
-
-def read_dump(ser) -> Optional[list]:
-    """Read the remaining dump bytes after the start marker was detected.
-    Returns list of 256 signed int32 samples, or None on error."""
-    # start marker (4 bytes) already consumed; read samples + end marker
-    remaining = ser.read(DUMP_SAMPLES * 4 + 4)
-    if len(remaining) != DUMP_SAMPLES * 4 + 4:
-        print(f"[DUMP] Short read: got {len(remaining)} bytes, expected {DUMP_SAMPLES*4+4}")
-        return None
-
-    samples = []
-    for i in range(DUMP_SAMPLES):
-        val = int.from_bytes(remaining[i*4:(i+1)*4], "big", signed=True)
-        samples.append(val)
-
-    end_word = int.from_bytes(remaining[DUMP_SAMPLES*4:], "big", signed=False)
-    if end_word != DUMP_END_MARKER:
-        print(f"[DUMP] Bad end marker: 0x{end_word:08X}")
-
-    return samples
 
 
 def save_dump(samples: list, dump_path: Path, dump_count: int) -> None:
@@ -152,7 +158,7 @@ def main() -> None:
     ser = serial.Serial(args.port, args.baud, stopbits=stop, timeout=1.0)
     ser.reset_input_buffer()
 
-    log_path  = Path(args.log)
+    log_path = Path(args.log)
     dump_path = Path(args.dump)
     mode = "a" if args.append else "w"
     log = log_path.open(mode, encoding="utf-8")
@@ -171,26 +177,25 @@ def main() -> None:
 
     try:
         while True:
-            result, prev_timer = read_aligned_frame(ser, prev_timer)
+            frame, dump_samples, prev_timer = read_aligned_frame(ser, prev_timer)
 
-            if result is None:
-                # dump start marker detected
-                print("[DUMP] Start marker received — reading buffer...")
-                samples = read_dump(ser)
-                if samples:
-                    dump_count += 1
-                    save_dump(samples, dump_path, dump_count)
-                    print(f"[DUMP] {len(samples)} samples, "
-                          f"peak={max(abs(v) for v in samples)}, "
-                          f"min={min(samples)}, max={max(samples)}")
-                prev_timer = None  # resync after dump
+            if dump_samples is not None:
+                print("[DUMP] Valid buffer dump received")
+                dump_count += 1
+                save_dump(dump_samples, dump_path, dump_count)
+                print(
+                    f"[DUMP] {len(dump_samples)} samples, "
+                    f"peak={max(abs(v) for v in dump_samples)}, "
+                    f"min={min(dump_samples)}, max={max(dump_samples)}"
+                )
                 continue
 
-            b = result
+            b = frame
             sample, energy, flag, timer = parse_frame(b)
             print(
                 f"{b[0:4].hex(' ')}  {b[4:8].hex(' ')}  {b[8:12].hex(' ')}  {b[12:16].hex(' ')}  "
-                f"sample={sample}  energy={energy}  flag={flag}  t={timer}"
+                f"sample={sample}  energy={energy}  loud={int(energy > 500)}  "
+                f"debounce={flag}  t={timer}"
             )
             log.write(f"{timer},{sample},{energy},{flag}\n")
             log.flush()

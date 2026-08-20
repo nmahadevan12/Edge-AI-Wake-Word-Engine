@@ -142,13 +142,15 @@ typedef struct
 #define RSWSTART        (1 << 17)
 #define REOCF           (1 << 1)
 
-/* Sample Buffer */
+/* Analyze Mic Data */
+#define DEBOUNCE_VAL    (30)
 #define CAPACITY        (256)
 
 uint32_t timer = 0; // defined globally since it's used for interrupts
-uint8_t flag;
 int32_t sample_buffer[CAPACITY]; // 1024 bytes total (y = 4 bytes)
-static uint8_t index = 0; // initialize index, static to ensure it doesn't reset to 0
+static uint16_t index = 0;
+static uint16_t loud_count = 0;
+static uint8_t capturing = 0;
 
 struct DC_Blocker
 {
@@ -234,52 +236,64 @@ void Send_Sample_Buffer(void)
 
     Convert_Uint_To_Bytes(marker_byte_start);
 
-    for (index_counter = 0; index_counter < 256; index_counter++)
+    for (index_counter = 0; index_counter < CAPACITY; index_counter++)
     {
         Convert_Int_To_Bytes(sample_buffer[index_counter]);
     }
-    index_counter = 0;
 
     Convert_Uint_To_Bytes(marker_byte_end);
 }
 
-void Sample_Buffer(int32_t y)
+// Capture exactly CAPACITY PCM samples after the first time energy > 500.
+// After CAPACITY samples, keep/send only if loud_count >= DEBOUNCE_VAL.
+void Sound_Detect(uint32_t energy, int32_t y)
 {
-    if (flag) // if energy above 500
+    // Always emit the 3rd UART field (0/1) to keep host framing aligned.
+    // During warm-up, force flag=0 and disable capture.
+    if (timer < 7000)
     {
-        sample_buffer[index] = y; // put y (signed 32-bit val in array)
+        capturing = 0;
+        index = 0;
+        loud_count = 0;
+        Convert_Uint_To_Bytes(0);
+        return;
+    }
 
-        if (index == 255) // execute when sample_buffer is full
+    // Start capturing at first loud sample.
+    if (!capturing)
+    {
+        if (energy > 500)
         {
-            Send_Sample_Buffer();
+            capturing = 1;
+            index = 0;
+            loud_count = 0;
         }
-
-        index++; // increment index
+        else
+        {
+            Convert_Uint_To_Bytes(0);
+            return;
+        }
     }
-}
 
-void Sound_Detect(uint32_t energy)
-{
-    static uint8_t debounce = 0;
-    static uint16_t low_counter = 0;
-    flag = 0;
+    // While capturing: store PCM y for all CAPACITY samples.
+    sample_buffer[index] = y;
+    if (energy > 500)
+        loud_count++;
 
-    if (energy > 500) // if energy above 500
+    index++;
+
+    // Decide when the fixed window is complete.
+    if (index >= CAPACITY)
     {
-        debounce++; // increment debounce
-        low_counter = 0;
-        flag = 1; // set flag = 1
-    }
-    else low_counter++;
+        if (loud_count >= DEBOUNCE_VAL)
+            Send_Sample_Buffer();
 
-    if (debounce >= 20) Convert_Uint_To_Bytes(1); // sends 1 if energy was detected
-    else Convert_Uint_To_Bytes(0); // sends 0 if no energy was detected
-
-    if (low_counter > 5000)
-    {
-        index = 0; // set index = 0
-        debounce = 0; // set debounce = 0
+        capturing = 0;
+        index = 0;
+        loud_count = 0;
     }
+
+    Convert_Uint_To_Bytes((loud_count >= DEBOUNCE_VAL) ? 1 : 0);
 }
 
 void Update_Energy(struct Update_Energy *select, int32_t y)
@@ -292,8 +306,8 @@ void Update_Energy(struct Update_Energy *select, int32_t y)
     uint32_t val_2 = (1 - select->alpha) * select->energy; // val_2 = (1-a)*energy
     select->energy = val_1 + val_2; // energy = val_1 + val_2
 
-    Convert_Uint_To_Bytes(select->energy); // 2nd field: energy
-    Sound_Detect(select->energy);          // 3rd field: flag (0 or 1)
+    Convert_Uint_To_Bytes(select->energy);
+    Sound_Detect(select->energy, y);
 }
 
 void DC_Blocker(struct DC_Blocker *select, int32_t x)
@@ -303,7 +317,6 @@ void DC_Blocker(struct DC_Blocker *select, int32_t x)
     select->y_prev = y; // y_prev = y
     Convert_Int_To_Bytes(y); // pass in 32-bit mic_data number
     Update_Energy(&energy, y); // call update energy function; pass in energy struct and y
-    Sample_Buffer(y);
 }
 
 void Mic_Setup(void)

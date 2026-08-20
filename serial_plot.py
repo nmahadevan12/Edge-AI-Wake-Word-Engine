@@ -2,7 +2,8 @@
 """Waveform viewer for mic_capture.csv + buffer_dump_NNN.csv from serial_monitor.py.
 
 CSV: timer_ms,sample,energy,flag
-16-byte UART frame: sample, energy, flag, timer
+flag column = UART debounce_passed (30 loud samples), not energy>500.
+16-byte UART frame: sample, energy, debounce_passed, timer
 Buffer dump CSV: index,y  (256 signed int32 samples per event)
 """
 
@@ -23,6 +24,7 @@ DEFAULT_LOG = Path(__file__).resolve().parent / "mic_capture.csv"
 DEFAULT_DUMP_DIR = Path(__file__).resolve().parent
 FULL_SCALE = 262144  # Sinc3, FOSR 64
 QUIET_MAX_START_MS = 1000  # ignore warm-up before tracking quiet max
+ENERGY_LOUD = 500  # firmware Sound_Detect threshold
 
 
 def load_dump(path: Path):
@@ -112,6 +114,7 @@ def main() -> None:
     parser.add_argument("--window", type=int, default=400)
     args = parser.parse_args()
     dump_dir = Path(args.dump_dir)
+    session_start = time.time()
 
     log_path = Path(args.log)
     times = deque(maxlen=args.history)
@@ -147,7 +150,7 @@ def main() -> None:
     fig = plt.figure(figsize=(14, 8))
     ax_live  = fig.add_subplot(2, 1, 1)  # top: live stream
     ax_dump  = fig.add_subplot(2, 1, 2)  # bottom: latest buffer dump
-    plt.subplots_adjust(bottom=0.15, right=0.78, hspace=0.45)
+    plt.subplots_adjust(left=0.08, bottom=0.18, right=0.78, top=0.78, hspace=0.50)
 
     # aliases for the live plot axes
     ax = ax_live
@@ -168,7 +171,16 @@ def main() -> None:
         [], [], lw=1.0, marker=".", ms=3, color="C1", label="energy"
     )
     (line_f,) = ax_f.plot(
-        [], [], lw=1.4, drawstyle="steps-post", color="C2", label="flag (0/1)"
+        [], [], lw=1.4, drawstyle="steps-post", color="C2", label="debounce (UART)"
+    )
+    (line_loud,) = ax_f.plot(
+        [],
+        [],
+        lw=1.2,
+        drawstyle="steps-post",
+        color="C3",
+        alpha=0.85,
+        label="loud (energy>500)",
     )
     (line_quiet,) = ax_e.plot(
         [],
@@ -178,10 +190,9 @@ def main() -> None:
         color="C4",
         label="quiet max (flag=0)",
     )
-    ax_e.axhline(1500, color="C1", ls="--", lw=0.8, alpha=0.6)
+    ax_e.axhline(ENERGY_LOUD, color="C1", ls="--", lw=0.8, alpha=0.6)
 
     ax.axhline(0, color="0.6", lw=0.6)
-    ax.set_title("Sample + energy + sound-detect flag vs timer")
     ax.set_xlabel("timer (ms)")
 
     ax.spines["left"].set_color("C0")
@@ -193,7 +204,7 @@ def main() -> None:
 
     ax.set_ylabel("signed int32 PCM", color="C0")
     ax_e.set_ylabel("energy", color="C1")
-    ax_f.set_ylabel("flag (0/1)", color="C2")
+    ax_f.set_ylabel("loud / debounce (0/1)", color="C2")
     ax.tick_params(axis="y", labelcolor="C0", colors="C0")
     ax_e.tick_params(axis="y", labelcolor="C1", colors="C1")
     ax_f.tick_params(axis="y", labelcolor="C2", colors="C2")
@@ -202,18 +213,38 @@ def main() -> None:
     ax_e.yaxis.label.set_color("C1")
     ax_f.yaxis.label.set_color("C2")
 
-    lines = [line_pcm, line_e, line_f, line_quiet]
-    ax.legend(lines, [ln.get_label() for ln in lines], loc="upper left")
+    lines = [line_pcm, line_e, line_loud, line_f, line_quiet]
+    fig.legend(
+        lines,
+        [ln.get_label() for ln in lines],
+        loc="lower left",
+        bbox_to_anchor=(0.08, 0.79),
+        ncol=5,
+        fontsize=8,
+        frameon=True,
+        borderaxespad=0,
+    )
 
     quiet_text = fig.text(
-        0.99,
-        0.97,
+        0.12,
+        0.105,
         "",
-        fontsize=9,
+        fontsize=8,
         color="C4",
-        ha="right",
-        va="top",
+        ha="left",
+        va="bottom",
         bbox={"boxstyle": "round,pad=0.3", "facecolor": "white", "alpha": 0.85},
+    )
+
+    live_text = fig.text(
+        0.08,
+        0.998,
+        "sample: —   energy: —",
+        fontsize=10,
+        color="0.15",
+        ha="left",
+        va="top",
+        bbox={"boxstyle": "round,pad=0.35", "facecolor": "white", "alpha": 0.9},
     )
 
     # --- dump subplot ---
@@ -232,7 +263,7 @@ def main() -> None:
     fig.text(
         0.01,
         0.01,
-        f"Source: {log_path.name}  ·  16-byte: sample, energy, flag, timer  ·  orange dashed = firmware threshold 1500",
+        f"Source: {log_path.name}  ·  16-byte: sample, energy, debounce, timer  ·  orange dashed = energy {ENERGY_LOUD}",
         fontsize=8,
         color="0.4",
     )
@@ -240,9 +271,48 @@ def main() -> None:
     ax_slider = plt.axes([0.12, 0.06, 0.62, 0.03])
     slider = Slider(ax_slider, "View", 0, 1, valinit=1, valstep=1)
     ax_follow = plt.axes([0.78, 0.05, 0.09, 0.04])
-    ax_pause  = plt.axes([0.88, 0.05, 0.09, 0.04])
+    ax_pause = plt.axes([0.88, 0.05, 0.09, 0.04])
+    ax_follow.set_zorder(20)
+    ax_pause.set_zorder(20)
     btn_follow = Button(ax_follow, "Follow")
     btn_pause = Button(ax_pause, "Pause")
+
+    def max_slider_start():
+        n = len(samples)
+        w = min(args.window, max(n, 1))
+        return max(0, n - w)
+
+    def set_slider_range(value=None):
+        """Update slider span without treating it as a user scrub (no follow-off)."""
+        max_start = max(1, max_slider_start())
+        cur = 0 if value is None else int(value)
+        cur = min(max(cur, 0), max_start)
+        slider.eventson = False
+        slider.valmax = max_start
+        slider.ax.set_xlim(slider.valmin, max_start)
+        slider.set_val(cur)
+        slider.eventson = True
+
+    def style_buttons():
+        on = {"color": "#4caf50", "hovercolor": "#66bb6a"}
+        off = {"color": "0.85", "hovercolor": "0.75"}
+        paused = {"color": "#ef6c00", "hovercolor": "#ff9800"}
+        idle = {"color": "0.85", "hovercolor": "0.75"}
+        if follow:
+            btn_follow.color = on["color"]
+            btn_follow.hovercolor = on["hovercolor"]
+            btn_pause.color = idle["color"]
+            btn_pause.hovercolor = idle["hovercolor"]
+            btn_follow.ax.set_facecolor(on["color"])
+            btn_pause.ax.set_facecolor(idle["color"])
+        else:
+            btn_follow.color = off["color"]
+            btn_follow.hovercolor = off["hovercolor"]
+            btn_pause.color = paused["color"]
+            btn_pause.hovercolor = paused["hovercolor"]
+            btn_follow.ax.set_facecolor(off["color"])
+            btn_pause.ax.set_facecolor(paused["color"])
+        fig.canvas.draw_idle()
 
     def window_slice():
         n = len(samples)
@@ -252,10 +322,7 @@ def main() -> None:
         max_start = max(0, n - w)
         if follow:
             start = max_start
-            slider.eventson = False
-            slider.valmax = max(1, max_start)
-            slider.set_val(start)
-            slider.eventson = True
+            set_slider_range(start)
         else:
             start = int(min(slider.val, max_start))
         end = start + w
@@ -275,6 +342,7 @@ def main() -> None:
         line_pcm.set_data(x, y)
         line_e.set_data(x, e)
         line_f.set_data(x, fl)
+        line_loud.set_data(x, [1 if v > ENERGY_LOUD else 0 for v in e])
         if x and session_max is not None:
             line_quiet.set_data([x[0], x[-1]], [session_max, session_max])
             line_quiet.set_visible(True)
@@ -282,15 +350,19 @@ def main() -> None:
             line_quiet.set_visible(False)
 
         if session_max is None:
-            quiet_text.set_text(f"Quiet max (flag=0, t>{QUIET_MAX_START_MS} ms): —")
+            quiet_text.set_text(f"Quiet max (t>{QUIET_MAX_START_MS} ms): —")
         else:
             streak_txt = "—" if streak_max is None else str(streak_max)
-            margin = max(1500 - session_max, 0)
+            margin = max(ENERGY_LOUD - session_max, 0)
             quiet_text.set_text(
-                f"Quiet max (session, t>{QUIET_MAX_START_MS} ms): {session_max}\n"
-                f"Current quiet streak: {streak_txt}\n"
-                f"Firmware threshold: 1500  ·  headroom: {margin}"
+                f"Quiet max: {session_max}   streak: {streak_txt}   "
+                f"threshold: {ENERGY_LOUD}   headroom: {margin}"
             )
+
+        if y:
+            live_text.set_text(f"sample: {y[-1]}   energy: {e[-1]}")
+        else:
+            live_text.set_text("sample: —   energy: —")
 
         if x:
             ax.set_xlim(x[0], x[-1] if x[-1] != x[0] else x[0] + 1)
@@ -299,7 +371,7 @@ def main() -> None:
             peak = min(peak * 1.3, FULL_SCALE)
             ax.set_ylim(-peak, peak)
         if e or session_max is not None:
-            top = max(max(e) if e else 0, session_max or 0, 1500, 1000)
+            top = max(max(e) if e else 0, session_max or 0, ENERGY_LOUD, 1000)
             ax_e.set_ylim(0, top * 1.3)
         ax_f.set_ylim(-0.1, 1.1)
         fig.canvas.draw_idle()
@@ -307,30 +379,48 @@ def main() -> None:
     def on_slider(_val):
         nonlocal follow
         follow = False
+        style_buttons()
         redraw()
 
     def on_follow(_event):
         nonlocal follow
         follow = True
+        style_buttons()
         redraw()
 
     def on_pause(_event):
         nonlocal follow
         follow = False
+        style_buttons()
+        redraw()
 
     slider.on_changed(on_slider)
     btn_follow.on_clicked(on_follow)
     btn_pause.on_clicked(on_pause)
 
+    def on_button_axes(event):
+        # Timer redraws steal matplotlib Button clicks on macOS; hit the axes directly.
+        if event.inaxes is ax_follow:
+            on_follow(event)
+        elif event.inaxes is ax_pause:
+            on_pause(event)
+
+    fig.canvas.mpl_connect("button_press_event", on_button_axes)
+
     def refresh_dump():
         """Check for a new buffer dump and update the bottom subplot."""
         dp = latest_dump(dump_dir)
         if dp is None or dp == last_dump_path[0]:
-            return
+            return False
+        try:
+            if dp.stat().st_mtime < session_start:
+                return False
+        except OSError:
+            return False
         last_dump_path[0] = dp
         ys = load_dump(dp)
         if not ys:
-            return
+            return False
         xs = list(range(len(ys)))
         line_dump.set_data(xs, ys)
         peak = max(abs(min(ys)), abs(max(ys)), 1)
@@ -340,6 +430,7 @@ def main() -> None:
             f"{dp.name}  ·  {len(ys)} samples  ·  peak={peak}  min={min(ys)}  max={max(ys)}"
         )
         dump_label.set_color("C0")
+        return True
 
     def on_timer():
         nonlocal offset, log_inode
@@ -358,27 +449,28 @@ def main() -> None:
                 offset = f.tell()
         except OSError:
             return
-        if not extra:
-            return
-        for line in extra.splitlines():
-            parsed = parse_line(line)
-            if parsed is not None:
-                t, s, e, fl = parsed
-                times.append(t)
-                samples.append(s)
-                energies.append(e)
-                flags.append(fl)
-        n = len(samples)
-        w = min(args.window, max(n, 1))
-        max_start = max(1, n - w)
-        slider.valmax = max_start
-        slider.ax.set_xlim(0, max_start)
-        refresh_dump()
-        redraw()
+        if extra:
+            for line in extra.splitlines():
+                parsed = parse_line(line)
+                if parsed is not None:
+                    t, s, e, fl = parsed
+                    times.append(t)
+                    samples.append(s)
+                    energies.append(e)
+                    flags.append(fl)
+        dumped = refresh_dump()
+        if follow:
+            if extra or dumped:
+                redraw()
+        else:
+            set_slider_range(slider.val)
+            if dumped:
+                fig.canvas.draw_idle()
 
     timer = fig.canvas.new_timer(interval=50)
     timer.add_callback(on_timer)
     timer.start()
+    style_buttons()
     redraw()
     plt.show()
 
