@@ -1,8 +1,8 @@
-# Edge AI Wake-Word Front End — STM32L475 (Bare Metal)
+# Edge AI Wake Word Engine — STM32L475 (Bare Metal)
 
-Register-level firmware and host tooling for an on-device wake-word pipeline on the **B-L475E-IOT01A** (`STM32L475VG`). No HAL — peripherals are programmed via register maps in [`src/main.c`](src/main.c).
+Register-level firmware and host tooling for an on-device wake-word engine on the **B-L475E-IOT01A** (`STM32L475VG`). No HAL — peripherals are programmed via register maps in [`src/main.c`](src/main.c).
 
-**Goal:** capture clean, fixed-length audio windows from the onboard MEMS microphone for training and later on-device inference of a “hey STM32” wake word.
+**Goal:** capture clean, fixed-length audio windows from the onboard MEMS microphone, then train and deploy on-device inference for a “hey STM32” wake word.
 
 ---
 
@@ -93,7 +93,7 @@ Wait ~7 s after reset (warm-up). Speak into the onboard mic; watch for `[DUMP]` 
 
 ## Status & next steps
 
-**Done:** bare-metal audio front end, gated fixed-window capture, UART export, host visualization.
+**Done:** bare-metal audio capture pipeline, gated fixed-window buffering, UART export, host visualization.
 
 **Next:** labeled dataset → features (e.g. MFCC) → train classifier → quantize and run inference on the MCU.
 

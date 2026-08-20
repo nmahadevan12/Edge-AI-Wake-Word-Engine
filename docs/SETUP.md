@@ -1,6 +1,6 @@
 # Setup Guide
 
-Complete environment setup for the STM32L475 wake-word front end.
+Complete environment setup for the STM32L475 Edge AI wake-word engine.
 
 ---
 
