@@ -254,6 +254,7 @@ void Sound_Detect(uint32_t energy, int32_t y)
         capturing = 0;
         index = 0;
         loud_count = 0;
+        low_count = 0;
         Convert_Uint_To_Bytes(0);
         return;
     }
@@ -266,6 +267,7 @@ void Sound_Detect(uint32_t energy, int32_t y)
             capturing = 1;
             index = 0;
             loud_count = 0;
+            low_count = 0;
         }
         else
         {
@@ -285,15 +287,16 @@ void Sound_Detect(uint32_t energy, int32_t y)
 
     index++;
 
-    if (low_count > 250) // if low_count > 250, restart sampling
+    if ((low_count > 250)  && (loud_count < DEBOUNCE_VAL))// if low_count > 250 AND loud_count < 30, restart sampling
     {
         // re-initialize variables/flags
         index = 0;
         capturing = 0;
         loud_count = 0;
+        low_count = 0;
     }
 
-    if ((index + 1) == CAPACITY) // if index reaches 256, index max = 255
+    if (index >= CAPACITY) // if index reaches 256, index max = 255
     {
         if (loud_count >= DEBOUNCE_VAL) // tracks the amount of val > 500
         {
